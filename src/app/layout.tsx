@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Next.js Template",
-  description: "A minimal Next.js starter template",
+  title: "THD Analyzer — NLS Summer Edition",
+  description: "DAW plugin for measuring Total Harmonic Distortion per channel with NLS Summer master bus",
 };
 
 export default function RootLayout({
