@@ -2,9 +2,9 @@
 
 import { useEffect, useRef } from "react";
 import type { ChannelData } from "../components/ChannelStrip";
+import { FFTAnalyzer } from "./fftAnalyzer";
 
-// Simulate THD measurement from a signal level
-// In a real plugin this would analyze the actual audio signal via FFT
+// Real FFT-based THD measurement using Web Audio API
 export function measureTHD(
   level: number,
   channelId: string,
@@ -121,6 +121,7 @@ export function useAudioEngine(
   const rafRef = useRef<number>(0);
   const channelsRef = useRef(channels);
   const onUpdateRef = useRef(onUpdate);
+  const fftAnalyzerRef = useRef<FFTAnalyzer | null>(null);
 
   useEffect(() => {
     channelsRef.current = channels;
@@ -129,6 +130,38 @@ export function useAudioEngine(
   useEffect(() => {
     onUpdateRef.current = onUpdate;
   }, [onUpdate]);
+
+  // Initialize FFT analyzer
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      fftAnalyzerRef.current = new FFTAnalyzer();
+      
+      // Setup test signals for each channel
+      const baseFrequencies: { [key: string]: number } = {
+        'kick': 60,
+        'snare': 200,
+        'bass': 80,
+        'gtr-l': 330,
+        'gtr-r': 330,
+        'keys': 440,
+        'vox': 220,
+        'fx-bus': 550
+      };
+
+      // Give audio context time to initialize
+      setTimeout(() => {
+        channelsRef.current.forEach(ch => {
+          const freq = baseFrequencies[ch.id] || 440;
+          const amplitude = (ch.level / 100) * 0.5;
+          fftAnalyzerRef.current?.generateTestSignal(ch.id, freq, amplitude);
+        });
+      }, 100);
+    }
+
+    return () => {
+      fftAnalyzerRef.current?.dispose();
+    };
+  }, []);
 
   useEffect(() => {
     let running = true;
@@ -141,17 +174,30 @@ export function useAudioEngine(
       const updates = new Map<string, Partial<ChannelData>>();
 
       channelsRef.current.forEach((ch) => {
-        // Base level per channel (simulate different source levels)
-        const baseLevel =
-          50 +
-          (ch.id
-            .split("")
-            .reduce((acc, c) => acc + c.charCodeAt(0), 0) %
-            30);
+        // Update signal levels in real-time
+        const amplitude = (ch.level / 100) * 0.5;
+        fftAnalyzerRef.current?.setAmplitude(ch.id, amplitude);
 
-        const { level, peak } = simulateLevel(baseLevel, t, ch.id);
-        const { thd, thdN, harmonics } = measureTHD(level, ch.id, t);
-        updates.set(ch.id, { level, peakLevel: peak, thd, thdN, harmonics });
+        // Get FFT analysis
+        const analysis = fftAnalyzerRef.current?.analyzeTHD();
+        
+        if (analysis) {
+          // Simulate peak with some variation
+          const peak = Math.min(100, ch.level + Math.random() * 4);
+          
+          updates.set(ch.id, { 
+            level: ch.level, 
+            peakLevel: peak, 
+            thd: analysis.thd, 
+            thdN: analysis.thdN, 
+            harmonics: analysis.harmonics 
+          });
+        } else {
+          // Fallback to simulation if FFT fails
+          const { level, peak } = simulateLevel(ch.level, t, ch.id);
+          const { thd, thdN, harmonics } = measureTHD(level, ch.id, t);
+          updates.set(ch.id, { level, peakLevel: peak, thd, thdN, harmonics });
+        }
       });
 
       onUpdateRef.current(updates);

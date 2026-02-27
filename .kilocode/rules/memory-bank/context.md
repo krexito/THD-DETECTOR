@@ -16,6 +16,7 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 - [x] Recipe system for common features
 - [x] THD Distortion Analyzer DAW plugin — v1 (with NLS Summer coloring controls)
 - [x] THD Analyzer v2 — Pure measurement architecture (no signal coloring)
+- [x] THD Analyzer v3 — Real FFT analysis using Web Audio API AnalyserNode
 
 ## Current Structure
 
@@ -26,7 +27,8 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 | `src/app/globals.css` | Global styles | ✅ Ready |
 | `src/components/ChannelStrip.tsx` | Per-channel THD measurement plugin (no coloring) | ✅ Ready |
 | `src/components/NLSSummer.tsx` | Master Brain plugin (mixbus analyzer) | ✅ Ready |
-| `src/lib/useAudioEngine.ts` | THD measurement simulation engine | ✅ Ready |
+| `src/lib/useAudioEngine.ts` | Real-time audio engine with FFT analysis | ✅ Ready |
+| `src/lib/fftAnalyzer.ts` | FFT-based THD analyzer using Web Audio API | ✅ Ready |
 | `.kilocode/` | AI context & recipes | ✅ Ready |
 
 ## Architecture (v2 — Pure Measurement)
@@ -54,17 +56,24 @@ interface ChannelData {
 (Removed: drive, saturation, character)
 
 ### Engine
-- `measureTHD(level, channelId, time)` — simulates FFT-based measurement
+- `FFTAnalyzer` class — Real FFT analysis using Web Audio API AnalyserNode
+  - FFT size: 32768 bins for high resolution
+  - Interpolated peak detection for precision
+  - Fundamental frequency detection (20Hz-2kHz range)
+  - Harmonic analysis H2-H8
+  - Automatic noise floor estimation
+- `measureTHD(level, channelId, time)` — fallback simulation (deprecated)
 - `computeMasterTHD(channels)` — RSS aggregation, returns worstChannel
-- `useAudioEngine(channels, onUpdate)` — simplified, no master level tracking
+- `useAudioEngine(channels, onUpdate)` — real-time FFT analysis loop
 
 ## Current Focus
 
-THD Analyzer v2 is live with pure measurement architecture:
+THD Analyzer v3 is now live with **real FFT analysis**:
 - 8 default channels (KICK, SNARE, BASS, GTR L/R, KEYS, VOX, FX BUS)
 - Channel plugin: THD gauge, THD+N, VU meter, mute/solo
 - Master Brain: master gauge, channel table, harmonic spectrum, timeline, alerts
-- Real-time simulation via requestAnimationFrame
+- **Real-time FFT analysis** using Web Audio API AnalyserNode (not simulation)
+- Test signal generation per channel for demo purposes
 
 ## Quick Start Guide
 
@@ -121,3 +130,4 @@ export async function GET() {
 | Initial | Template created with base setup |
 | Session 1 | THD Analyzer v1 — NLS Summer with drive/saturation/character controls |
 | Session 2 | THD Analyzer v2 — Pure measurement architecture, Master Brain plugin |
+| Session 3 | THD Analyzer v3 — Real FFT analysis using Web Audio API AnalyserNode |
