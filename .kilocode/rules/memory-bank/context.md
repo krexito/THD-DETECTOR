@@ -1,10 +1,13 @@
-# Active Context: Next.js Starter Template
+# Active Context: THD Analyzer Project
 
 ## Current State
 
-**Template Status**: ✅ Ready for development
+**Project Status**: ✅ Active Development - VST Plugin Development
 
-The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. It's ready for AI-assisted expansion to build any type of application.
+The THD Analyzer project has evolved from a web-based analyzer to include native VST plugin development. The project now has two components:
+
+1. **Web Version**: Real-time THD analyzer using Web Audio API (complete)
+2. **VST Plugin**: Native VST3 plugin using JUCE framework (in development)
 
 ## Recently Completed
 
@@ -29,6 +32,7 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 | `src/components/NLSSummer.tsx` | Master Brain plugin (mixbus analyzer) | ✅ Ready |
 | `src/lib/useAudioEngine.ts` | Real-time audio engine with FFT analysis | ✅ Ready |
 | `src/lib/fftAnalyzer.ts` | FFT-based THD analyzer using Web Audio API | ✅ Ready |
+| `src/vst-plugin/` | Native VST3 plugin (JUCE framework) | 🚧 In Development |
 | `.kilocode/` | AI context & recipes | ✅ Ready |
 
 ## Architecture (v2 — Pure Measurement)
@@ -68,12 +72,14 @@ interface ChannelData {
 
 ## Current Focus
 
-THD Analyzer v3 is now live with **real FFT analysis**:
-- 8 default channels (KICK, SNARE, BASS, GTR L/R, KEYS, VOX, FX BUS)
-- Channel plugin: THD gauge, THD+N, VU meter, mute/solo
-- Master Brain: master gauge, channel table, harmonic spectrum, timeline, alerts
-- **Real-time FFT analysis** using Web Audio API AnalyserNode (not simulation)
-- Test signal generation per channel for demo purposes
+**VST Plugin Development (JUCE)**
+- Created VST3 plugin project structure using JUCE framework
+- Ported FFT analysis logic from TypeScript to C++
+- Implemented 8-channel THD analyzer in native code
+- Using JUCE DSP FFT module (8192 size)
+- Next: Add plugin UI and test functionality
+
+**Web Version**: Maintained for testing and demo purposes
 
 ## Quick Start Guide
 
@@ -131,3 +137,4 @@ export async function GET() {
 | Session 1 | THD Analyzer v1 — NLS Summer with drive/saturation/character controls |
 | Session 2 | THD Analyzer v2 — Pure measurement architecture, Master Brain plugin |
 | Session 3 | THD Analyzer v3 — Real FFT analysis using Web Audio API AnalyserNode |
+| Session 4 | VST Plugin Development — Started native VST3 plugin with JUCE framework |

@@ -1,19 +1,43 @@
-# System Patterns: Next.js Starter Template
+# System Patterns: THD Analyzer Project
 
 ## Architecture Overview
 
 ```
 src/
-├── app/                    # Next.js App Router
+├── app/                    # Next.js App Router (Web Version)
 │   ├── layout.tsx          # Root layout + metadata
 │   ├── page.tsx            # Home page
 │   ├── globals.css         # Tailwind imports + global styles
 │   └── favicon.ico         # Site icon
-└── (expand as needed)
-    ├── components/         # React components (add when needed)
-    ├── lib/                # Utilities and helpers (add when needed)
-    └── db/                 # Database files (add via recipe)
+├── components/             # React components
+│   ├── ChannelStrip.tsx   # Channel THD measurement UI
+│   └── NLSSummer.tsx      # Master Brain analyzer UI
+├── lib/                   # Audio engine utilities
+│   ├── fftAnalyzer.ts     # Web Audio API FFT analyzer
+│   └── useAudioEngine.ts  # Real-time audio engine
+└── vst-plugin/            # Native VST Plugin (JUCE)
+    ├── CMakeLists.txt     # Build configuration
+    ├── README.md          # VST build instructions
+    └── Source/
+        ├── THDAnalyzerPlugin.h  # Plugin header + FFT classes
+        └── THDAnalyzerPlugin.cpp # Plugin implementation
 ```
+
+## Dual Architecture: Web + VST
+
+The project now has two parallel implementations:
+
+### 1. Web Version (Next.js + Web Audio API)
+- Real-time FFT analysis in browser
+- UI components for visualization
+- Test signal generation
+- Accessible via web browser
+
+### 2. VST Plugin (JUCE C++)
+- Native VST3 plugin for DAWs
+- Same FFT analysis logic ported to C++
+- Runs inside DAW (Ableton, Logic, Pro Tools, etc.)
+- Needs JUCE framework to build
 
 ## Key Design Patterns
 
