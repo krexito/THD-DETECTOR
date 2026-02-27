@@ -4,14 +4,35 @@ import { useEffect, useRef } from "react";
 import type { ChannelData } from "../components/ChannelStrip";
 import { FFTAnalyzer } from "./fftAnalyzer";
 
+// Global FFT analyzer instance
+let fftAnalyzerInstance: FFTAnalyzer | null = null;
+
 // Real FFT-based THD measurement using Web Audio API
 export function measureTHD(
   level: number,
   channelId: string,
   time: number
 ): { thd: number; thdN: number; harmonics: number[] } {
-  // Simulate different channels having different inherent distortion profiles
-  // based on their ID (in a real plugin this comes from the actual audio)
+  // Try to use real FFT analyzer first
+  try {
+    if (typeof window !== 'undefined' && !fftAnalyzerInstance) {
+      fftAnalyzerInstance = new FFTAnalyzer();
+    }
+    
+    if (fftAnalyzerInstance) {
+      const result = fftAnalyzerInstance.analyzeTHD();
+      // Adapt FFT result to match expected interface
+      return {
+        thd: result.thd,
+        thdN: result.thdN,
+        harmonics: result.harmonics
+      };
+    }
+  } catch (error) {
+    console.warn('FFT analysis failed, using fallback:', error);
+  }
+  
+  // Fallback to simulation if FFT fails
   const seed = channelId
     .split("")
     .reduce((acc, c) => acc + c.charCodeAt(0), 0);
