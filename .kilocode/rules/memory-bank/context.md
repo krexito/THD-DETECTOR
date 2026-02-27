@@ -14,28 +14,57 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 - [x] ESLint configuration
 - [x] Memory bank documentation
 - [x] Recipe system for common features
-- [x] THD Distortion Analyzer DAW plugin with NLS Summer master bus
+- [x] THD Distortion Analyzer DAW plugin — v1 (with NLS Summer coloring controls)
+- [x] THD Analyzer v2 — Pure measurement architecture (no signal coloring)
 
 ## Current Structure
 
 | File/Directory | Purpose | Status |
 |----------------|---------|--------|
-| `src/app/page.tsx` | Main DAW plugin page (8 channels + master) | ✅ Ready |
+| `src/app/page.tsx` | Main DAW plugin page (8 channels + master brain) | ✅ Ready |
 | `src/app/layout.tsx` | Root layout | ✅ Ready |
 | `src/app/globals.css` | Global styles | ✅ Ready |
-| `src/components/ChannelStrip.tsx` | Per-channel THD analyzer plugin | ✅ Ready |
-| `src/components/NLSSummer.tsx` | NLS Summer master bus plugin | ✅ Ready |
-| `src/lib/useAudioEngine.ts` | Real-time THD simulation engine | ✅ Ready |
+| `src/components/ChannelStrip.tsx` | Per-channel THD measurement plugin (no coloring) | ✅ Ready |
+| `src/components/NLSSummer.tsx` | Master Brain plugin (mixbus analyzer) | ✅ Ready |
+| `src/lib/useAudioEngine.ts` | THD measurement simulation engine | ✅ Ready |
 | `.kilocode/` | AI context & recipes | ✅ Ready |
+
+## Architecture (v2 — Pure Measurement)
+
+### Design Concept
+- **Channel plugins** = passive THD analyzers inserted on each channel strip
+  - Measure THD, THD+N, harmonics H2–H8 from signal level
+  - Display: arc gauge, THD+N readout, VU meter, status badge
+  - NO drive/saturation/character controls — zero signal coloring
+- **Master Brain plugin** = inserted on the mixbus
+  - Receives all channel measurement data
+  - Displays: master THD gauge, channel table (THD/THD+N/dominant harmonic/level), harmonic spectrum H2–H8, rolling THD history timeline, alert indicator
+
+### ChannelData Interface
+```ts
+interface ChannelData {
+  id: string; name: string;
+  thd: number; thdN: number;
+  level: number; peakLevel: number;
+  harmonics: number[];   // H2–H8
+  muted: boolean; soloed: boolean;
+  color: string;
+}
+```
+(Removed: drive, saturation, character)
+
+### Engine
+- `measureTHD(level, channelId, time)` — simulates FFT-based measurement
+- `computeMasterTHD(channels)` — RSS aggregation, returns worstChannel
+- `useAudioEngine(channels, onUpdate)` — simplified, no master level tracking
 
 ## Current Focus
 
-THD Analyzer DAW plugin is live with:
+THD Analyzer v2 is live with pure measurement architecture:
 - 8 default channels (KICK, SNARE, BASS, GTR L/R, KEYS, VOX, FX BUS)
-- Per-channel: arc THD gauge, THD+N readout, harmonic spectrum bars, VU meter, drive/saturation/character controls, mute/solo
-- NLS Summer master: spectrum analyzer, per-channel THD summary, sum mode (analog/digital/vintage/transformer), stereo VU, clip indicator
+- Channel plugin: THD gauge, THD+N, VU meter, mute/solo
+- Master Brain: master gauge, channel table, harmonic spectrum, timeline, alerts
 - Real-time simulation via requestAnimationFrame
-- Add/remove channels dynamically
 
 ## Quick Start Guide
 
@@ -90,3 +119,5 @@ export async function GET() {
 | Date | Changes |
 |------|---------|
 | Initial | Template created with base setup |
+| Session 1 | THD Analyzer v1 — NLS Summer with drive/saturation/character controls |
+| Session 2 | THD Analyzer v2 — Pure measurement architecture, Master Brain plugin |
