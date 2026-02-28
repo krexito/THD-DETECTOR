@@ -103,6 +103,28 @@ void THDAnalyzerPlugin::processBlock (AudioBuffer<float>& buffer, MidiBuffer& mi
     // Perform FFT analysis on mixed audio
     double sampleRate = getSampleRate();
     lastAnalysis = fftAnalyzer.analyze(monoBuffer.data(), numSamples, sampleRate);
+    
+    // Handle communication based on plugin mode
+    if (pluginMode == PluginMode::ChannelStrip) {
+        // Channel Strip: Send THD data to Master Brain via MIDI
+        sendTHDDataToMaster(lastAnalysis);
+        
+        // Clear MIDI input (we don't need input in Channel Strip mode)
+        midiMessages.clear();
+        
+        // Add our MIDI output to the buffer
+        midiMessages.addEvents(midiOutputBuffer, 0, midiOutputBuffer.getNumEvents(), 0);
+        midiOutputBuffer.clear();
+        
+    } else if (pluginMode == PluginMode::MasterBrain) {
+        // Master Brain: Receive THD data from Channel Strips
+        for (const MidiMessageMetadata metadata : midiMessages) {
+            const MidiMessage& midi = metadata.getMessage();
+            if (midi.isSysEx()) {
+                receiveTHDData(midi);
+            }
+        }
+    }
 }
 
 //==============================================================================

@@ -20,6 +20,7 @@ The THD Analyzer project has evolved from a web-based analyzer to include native
 - [x] THD Distortion Analyzer DAW plugin — v1 (with NLS Summer coloring controls)
 - [x] THD Analyzer v2 — Pure measurement architecture (no signal coloring)
 - [x] THD Analyzer v3 — Real FFT analysis using Web Audio API AnalyserNode
+- [x] VST Plugin Communication System — MIDI-based Channel Strip ↔ Master Brain communication
 
 ## Current Structure
 
@@ -45,6 +46,13 @@ The THD Analyzer project has evolved from a web-based analyzer to include native
 - **Master Brain plugin** = inserted on the mixbus
   - Receives all channel measurement data
   - Displays: master THD gauge, channel table (THD/THD+N/dominant harmonic/level), harmonic spectrum H2–H8, rolling THD history timeline, alert indicator
+
+### VST Plugin Communication System
+The VST plugins communicate using MIDI System Exclusive messages:
+- **Channel Strip Mode**: Each plugin instance sends THD data via MIDI to the Master Brain
+- **Master Brain Mode**: Receives MIDI data from all Channel Strip plugins
+- **Protocol**: Custom SysEx (0xF0 0x7D 0x01 ...) containing channel ID, THD, THD+N, level, peak, harmonics
+- **Implementation**: `THDDataMessage` struct with MIDI serialization/deserialization
 
 ### ChannelData Interface
 ```ts
