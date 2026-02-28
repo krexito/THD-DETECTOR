@@ -1,7 +1,11 @@
 /* ==============================================================================
    THD Analyzer VST Plugin
-   A real-time THD (Total Harmonic Distortion) analyzer with 8 channels
+   A real-time THD (Total Harmonic Distortion) analyzer
    Built with JUCE framework
+   
+   Two plugins:
+   1. THD Channel Analyzer - for individual channel strips
+   2. THD Master Brain - for master bus analysis
    ============================================================================== */
 
 #pragma once
@@ -209,19 +213,16 @@ public:
     void getStateInformation (MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    // Channel data access
-    std::vector<ChannelData>& getChannelData() { return channels; }
-    const std::vector<ChannelData>& getChannelData() const { return channels; }
-
-private:
-    //==============================================================================
-    std::vector<ChannelData> channels;
-    std::vector<FFTAnalyzer> fftAnalyzers;
-    std::vector<float> channelBuffers;
-    int maxBufferSize;
+    // Flexible analyzer - works on whatever channel configuration it's inserted on
+    // Use on channel strips for per-channel analysis, or on master for mix analysis
+    FFTAnalyzer fftAnalyzer;
     
-    // Initialize channels
-    void initializeChannels();
+    // Buffer for audio analysis
+    std::vector<float> audioBuffer;
+    int bufferPosition;
 
+    // Analysis results
+    FFTAnalyzer::AnalysisResult lastAnalysis;
+    
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (THDAnalyzerPlugin)
 };
