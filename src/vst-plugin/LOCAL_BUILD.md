@@ -1,186 +1,225 @@
-# Local VST Plugin Build Guide
+# Building THD Analyzer VST3 Plugin Locally
 
-## ⚠️ Important: Current Environment Limitation
+This guide explains how to build the THD Analyzer VST3 plugin on your local machine.
 
-**This development environment does NOT have the required tools to build the VST plugin:**
-- ❌ No C++ compiler (GCC/Clang/MSVC)
-- ❌ No CMake build system
-- ❌ No JUCE framework
+## Prerequisites
 
-The VST plugin **source code is complete and ready**, but you need to build it on your **local machine**.
+### All Platforms
+- [CMake](https://cmake.org/download/) 3.22 or later
+- [Git](https://git-scm.com/downloads)
 
----
+### Platform-Specific Requirements
 
-## What You Need to Install on Your Computer
+#### Windows
+- Visual Studio 2022 (Community, Professional, or Enterprise) OR Visual Studio Build Tools 2022
+- Required components:
+  - MSVC v143 - VS 2022 C++ x64/x86 build tools
+  - Windows 11 SDK or Windows 10 SDK
+  - CMake tools for Windows (optional but recommended)
 
-### 1. C++ Compiler
-**Windows:** Install [Visual Studio](https://visualstudio.microsoft.com/) with C++ workload
-**macOS:** Install Xcode Command Line Tools: `xcode-select --install`
-**Linux:** Install GCC: `sudo apt install g++` or Clang: `sudo apt install clang++`
-
-### 2. CMake
-Download from: https://cmake.org/download/
-**Windows:** Add CMake to PATH during installation
-**macOS:** `brew install cmake`
-**Linux:** `sudo apt install cmake`
-
-### 3. JUCE Framework
+#### Linux (Ubuntu/Debian)
 ```bash
-cd /path/to/your/project
-git clone --recurse-submodules https://github.com/juce-framework/JUCE.git
+sudo apt-get update
+sudo apt-get install -y cmake g++ pkg-config git
+sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev
+sudo apt-get install -y libxinerama-dev libxcursor-dev libfreetype6-dev
+sudo apt-get install -y libfontconfig1-dev libcurl4-openssl-dev
 ```
 
----
+#### macOS
+- Xcode Command Line Tools
+- CMake (via Homebrew: `brew install cmake`)
 
-## Build Steps
+## Building on Windows
 
-### Step 1: Clone and Navigate
+### Option 1: Using the Batch Script
+```cmd
+cd src\vst-plugin
+build-windows.bat
+```
+
+### Option 2: Using PowerShell (Recommended)
+```powershell
+cd src\vst-plugin
+PowerShell -ExecutionPolicy Bypass -File build-windows.ps1
+```
+
+### Option 3: Manual Build
+```cmd
+cd src\vst-plugin
+
+:: Clone JUCE if not present
+git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git
+
+:: Create build directory
+mkdir build-windows
+cd build-windows
+
+:: Configure
+cmake .. -G "Visual Studio 17 2022" -A x64
+
+:: Build
+cmake --build . --config Release --target THDAnalyzerPlugin_VST3
+```
+
+### Windows Output Location
+```
+src\vst-plugin\build-windows\THDAnalyzerPlugin_artefacts\VST3\THDAnalyzerPlugin.vst3
+```
+
+### Installing on Windows
+Copy the VST3 bundle to your VST3 plugins folder:
+```
+%LOCALAPPDATA%\Programs\Common\VST3\THDAnalyzerPlugin.vst3
+```
+
+Or to a system-wide location:
+```
+C:\Program Files\Common Files\VST3\THDAnalyzerPlugin.vst3
+```
+
+## Building on Linux
+
+### Option 1: Using the Shell Script
 ```bash
-# Navigate to your project
-cd /path/to/THD-DETECTOR
-
-# Navigate to VST plugin directory
 cd src/vst-plugin
-```
-
-### Step 2: Clone JUCE (if not already in project)
-```bash
-git clone --recurse-submodules https://github.com/juce-framework/JUCE.git
-```
-
-### Step 3: Make Build Script Executable
-```bash
-chmod +x build.sh
-```
-
-### Step 4: Run Build Script
-```bash
 ./build.sh
 ```
 
----
-
-## Alternative: Manual Build
-
-If the build script doesn't work, here's the manual process:
-
-### Windows (PowerShell):
-```powershell
-# Clone JUCE
-git clone --recurse-submodules https://github.com/juce-framework/JUCE.git
-
-# Navigate to VST plugin
-cd src/vst-plugin
-
-# Create build directory
-mkdir build
-cd build
-
-# Configure
-cmake .. -DJUCE_DIR=..\..\JUCE -DCMAKE_BUILD_TYPE=Release
-
-# Build
-cmake --build . --config Release
-```
-
-### macOS/Linux:
+### Option 2: Manual Build
 ```bash
-# Clone JUCE
-git clone --recurse-submodules https://github.com/juce-framework/JUCE.git
-
-# Navigate to VST plugin
 cd src/vst-plugin
 
+# Install dependencies (Ubuntu/Debian)
+sudo apt-get install -y cmake g++ pkg-config
+sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev
+sudo apt-get install -y libxinerama-dev libxcursor-dev libfreetype6-dev
+sudo apt-get install -y libfontconfig1-dev libcurl4-openssl-dev
+
+# Clone JUCE if not present
+git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git
+
 # Create build directory
-mkdir build
-cd build
+mkdir build && cd build
 
 # Configure
-cmake .. -DJUCE_DIR=../../JUCE -DCMAKE_BUILD_TYPE=Release
+cmake ..
 
 # Build
 cmake --build . --config Release
 ```
 
----
+### Linux Output Location
+```
+src/vst-plugin/build/THDAnalyzerPlugin_artefacts/VST3/THDAnalyzerPlugin.vst3
+```
 
-## Expected Output
+### Installing on Linux
+```bash
+# User install (recommended)
+mkdir -p ~/.vst3
+cp -r build/THDAnalyzerPlugin_artefacts/VST3/THDAnalyzerPlugin.vst3 ~/.vst3/
 
-After successful build, you should get:
-- **Windows:** `THDAnalyzerPlugin.vst3` in `build/` folder
-- **macOS:** `THDAnalyzerPlugin.vst3` in `build/` folder  
-- **Linux:** `THDAnalyzerPlugin.so` in `build/` folder
+# Or system-wide install
+sudo mkdir -p /usr/lib/vst3
+sudo cp -r build/THDAnalyzerPlugin_artefacts/VST3/THDAnalyzerPlugin.vst3 /usr/lib/vst3/
+```
 
----
+## Building on macOS
 
-## How to Install the VST Plugin
+### Requirements
+- macOS 10.14 or later
+- Xcode Command Line Tools
+- CMake
 
-### Windows:
-1. Copy the `.vst3` file to: `C:\Program Files\VST3\`
-2. Or use your DAW's custom VST3 folder
+### Build Steps
+```bash
+cd src/vst-plugin
 
-### macOS:
-1. Copy the `.vst3` file to: `/Library/Audio/Plug-Ins/VST3/`
-2. Or `~/Library/Audio/Plug-Ins/VST3/`
+# Clone JUCE if not present
+git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git
 
-### Linux:
-1. Copy the `.so` file to: `~/.vst3/`
+# Create build directory
+mkdir build && cd build
 
----
+# Configure
+cmake .. -G "Xcode"
 
-## Using the Plugin in Your DAW
+# Build
+cmake --build . --config Release
+```
 
-1. **Restart your DAW** (to detect new plugins)
-2. **Scan for plugins** in your DAW settings
-3. **Add THD Analyzer** to a channel strip
-4. **Load audio** through that channel
-5. **See real-time THD measurements** for each harmonic
+### macOS Output Location
+```
+src/vst-plugin/build/THDAnalyzerPlugin_artefacts/VST3/THDAnalyzerPlugin.vst3
+```
 
----
+### Installing on macOS
+```bash
+# User install
+mkdir -p ~/Library/Audio/Plug-Ins/VST3
+cp -r build/THDAnalyzerPlugin_artefacts/VST3/THDAnalyzerPlugin.vst3 ~/Library/Audio/Plug-Ins/VST3/
+
+# Or system-wide
+sudo cp -r build/THDAnalyzerPlugin_artefacts/VST3/THDAnalyzerPlugin.vst3 /Library/Audio/Plug-Ins/VST3/
+```
 
 ## Troubleshooting
 
-### "JUCE not found"
-Make sure JUCE directory is named exactly "JUCE" and is in the right location, or set JUCE_DIR environment variable.
+### Windows Issues
 
-### "Compiler not found"
-Install a C++ compiler for your operating system (see requirements above).
+#### "Visual Studio not found"
+Install Visual Studio 2022 or Build Tools from:
+https://visualstudio.microsoft.com/downloads/
 
-### "CMake error"
-Make sure CMake is installed and added to your system PATH.
+Make sure to select "Desktop development with C++" workload.
 
-### Build succeeds but no .vst3 file
-Check the `build/` directory for any generated files. The exact filename may vary by platform.
+#### "CMake not found"
+Download and install CMake from https://cmake.org/download/
+Make sure to check "Add CMake to the system PATH" during installation.
 
----
+### Linux Issues
 
-## What's Included in the VST
+#### Missing webkit2gtk headers
+```bash
+sudo apt-get install libwebkit2gtk-4.0-dev
+```
 
-✅ **8-Channel THD Analysis:**
-- KICK, SNARE, BASS, GUITAR L/R, KEYS, VOX, FX BUS
+#### Missing GTK headers
+```bash
+sudo apt-get install libgtk-3-dev
+```
 
-✅ **Real-time FFT Analysis:**
-- 8192 FFT size
-- Hanning window
-- Harmonic detection H2-H8
+### macOS Issues
 
-✅ **Measurements:**
-- THD (Total Harmonic Distortion)
-- THD+N (THD + Noise)
-- Individual harmonic levels (H2-H8)
-- RMS and peak levels
+#### Xcode not found
+Install Xcode Command Line Tools:
+```bash
+xcode-select --install
+```
 
-✅ **VST3 Format:**
-- Works in Ableton Live, Logic Pro, Pro Tools, Reaper, etc.
+## Plugin Information
 
----
+After building, you'll find:
+- **VST3 Plugin**: `THDAnalyzerPlugin.vst3` bundle
+  - Windows: `Contents/x86_64-win/THDAnalyzerPlugin.dll`
+  - Linux: `Contents/x86_64-linux/THDAnalyzerPlugin.so`
+  - macOS: `Contents/MacOS/THDAnalyzerPlugin`
 
-## Next Steps After Building
+## Testing the Plugin
 
-Once you successfully build the plugin:
-1. ✅ Test it in your DAW
-2. ✅ Verify THD measurements are accurate
-3. ✅ Add the plugin UI (optional - currently has basic UI)
-4. ✅ Create presets
+1. Install the VST3 plugin to your system's VST3 folder
+2. Open your DAW (Ableton Live, FL Studio, Reaper, etc.)
+3. Scan for new plugins
+4. Insert THDAnalyzerPlugin on an audio track
+5. Play audio through it to see THD analysis
 
-The plugin source code is complete and ready to build - you just need the right tools on your local machine! 🎵
+## Build Configuration
+
+The CMakeLists.txt supports these options:
+- **FORMATS**: VST3 (default), can add AU (macOS), Standalone
+- **BUILD_SHARED_LIBS**: OFF (static linking recommended for plugins)
+
+To modify build settings, edit `src/vst-plugin/CMakeLists.txt`.
