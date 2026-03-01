@@ -164,3 +164,6 @@ export async function GET() {
 | Session 13 | VST parameter wiring pass — exposed APVTS accessors/parameter ID helpers to editor scope and wired channel card mute/solo buttons to APVTS `ButtonAttachment`s for host automation-safe parameter sync. |
 
 | Session 14 | VST const-correctness build fix — ensured editor binds `ButtonAttachment`s using non-const APVTS accessor, while keeping both const and non-const `getValueTreeState()` overloads available in processor API. |
+
+| Session 15 | JUCE editor crash hardening pass — fixed member destruction order so `juce::Viewport` is destroyed before its viewed content component, preventing host crashes when opening/closing the plugin GUI. |
+
