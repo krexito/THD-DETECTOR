@@ -156,3 +156,4 @@ export async function GET() {
 | Session 9 | VST automation/state pass — moved host-visible settings to `AudioProcessorValueTreeState` (plugin mode, channel ID, mute/solo flags), switched state save/restore to APVTS ValueTree, and added atomic cached reads for audio-thread-safe parameter access. |
 | Session 9 | Initialization and debug workflow pass — documented Visual Studio/Xcode auto-launch setup for AudioPluginHost and centralized processor state clearing via `reset()` for clean plugin starts |
 | Session 10 | PR conflict-support docs pass — added step-by-step local merge conflict resolution workflow and marker sanity check to VST local build guide |
+| Session 11 | PR #7 follow-up hardening — cached APVTS raw parameter pointers and listener-driven cache sync to remove per-block parameter lookups in `processBlock`, plus legacy `THDAnalyzerSettings` XML migration into current mute/solo APVTS parameters during state restore. |
