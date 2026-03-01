@@ -3,6 +3,7 @@
    ============================================================================== */
 
 #include "THDAnalyzerPlugin.h"
+#include "THDAnalyzerPluginEditor.h"
 
 THDAnalyzerPlugin::THDAnalyzerPlugin()
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -317,7 +318,7 @@ bool THDAnalyzerPlugin::hasEditor() const
 
 juce::AudioProcessorEditor* THDAnalyzerPlugin::createEditor()
 {
-    return new juce::GenericAudioProcessorEditor (*this);
+    return new THDAnalyzerPluginEditor (*this);
 }
 
 const juce::String THDAnalyzerPlugin::getName() const
