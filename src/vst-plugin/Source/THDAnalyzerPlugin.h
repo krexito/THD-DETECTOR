@@ -269,6 +269,7 @@ public:
     void receiveTHDData (const juce::MidiMessage& midi);
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
+    void reset() override;
     void releaseResources() override;
 
    #ifndef JucePlugin_PreferredChannelConfigurations
