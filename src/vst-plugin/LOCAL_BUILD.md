@@ -166,6 +166,35 @@ cp -r build/THDAnalyzerPlugin_artefacts/VST3/THDAnalyzerPlugin.vst3 ~/Library/Au
 sudo cp -r build/THDAnalyzerPlugin_artefacts/VST3/THDAnalyzerPlugin.vst3 /Library/Audio/Plug-Ins/VST3/
 ```
 
+
+## IDE Debug Setup: Auto-launch AudioPluginHost
+
+When debugging a JUCE plugin, you usually run the **plugin host** as the debug executable (not the plugin binary itself). This lets your IDE attach to the host process and load your plugin automatically.
+
+### Visual Studio (Windows)
+
+1. Generate/open the Visual Studio solution (for example via `cmake .. -G "Visual Studio 17 2022" -A x64`).
+2. In Solution Explorer, select your plugin target (for example `THDAnalyzerPlugin_VST3`).
+3. Open **Project > Properties > Debugging**.
+4. Set:
+   - **Command**: full path to `AudioPluginHost.exe`
+   - **Command Arguments** (optional): path to a saved `.filtergraph` file that already contains your plugin instance
+   - **Working Directory**: folder containing `AudioPluginHost.exe`
+5. Apply and press **F5**. Visual Studio will launch AudioPluginHost at debug start.
+
+Tip: Build JUCE's `AudioPluginHost` app once from JUCE's `extras/AudioPluginHost` project, then reuse that executable for all plugin debugging sessions.
+
+### Xcode (macOS)
+
+1. Generate the Xcode project (`cmake .. -G "Xcode"`) and open it.
+2. Select your plugin scheme.
+3. Go to **Product > Scheme > Edit Scheme... > Run**.
+4. In **Info**, set **Executable** to the `AudioPluginHost.app` binary.
+5. In **Arguments**, optionally pass a saved `.filtergraph` file path.
+6. Run the scheme. Xcode will start AudioPluginHost automatically for debugging.
+
+Tip: Ensure your plugin is installed in a scanned VST3 location (`~/Library/Audio/Plug-Ins/VST3` or `/Library/Audio/Plug-Ins/VST3`) and that AudioPluginHost has rescanned plugins.
+
 ## Troubleshooting
 
 ### Windows Issues

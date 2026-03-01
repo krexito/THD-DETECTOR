@@ -83,7 +83,16 @@ void THDAnalyzerPlugin::receiveTHDData (const juce::MidiMessage& midi)
 
 void THDAnalyzerPlugin::prepareToPlay (double, int)
 {
+    reset();
+}
+
+void THDAnalyzerPlugin::reset()
+{
     std::fill (analysisFifo.begin(), analysisFifo.end(), 0.0f);
+    std::fill (orderedSamplesScratch.begin(), orderedSamplesScratch.end(), 0.0f);
+    monoBufferScratch.clear();
+
+    lastAnalysis = FFTAnalyzer::AnalysisResult {};
     fifoWritePosition = 0;
     fifoFilled = false;
     midiOutputBuffer.clear();

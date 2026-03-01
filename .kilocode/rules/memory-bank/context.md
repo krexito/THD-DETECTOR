@@ -21,6 +21,7 @@ The THD Analyzer project has evolved from a web-based analyzer to include native
 - [x] THD Analyzer v2 — Pure measurement architecture (no signal coloring)
 - [x] THD Analyzer v3 — Real FFT analysis using Web Audio API AnalyserNode
 - [x] VST Plugin Communication System — MIDI-based Channel Strip ↔ Master Brain communication
+- [x] Plugin reset hardening — centralized startup state reset in `reset()` and invoked from `prepareToPlay` for cleaner audio initialization
 
 ## Current Structure
 
@@ -151,3 +152,4 @@ export async function GET() {
 | Session 6 | Merge-conflict cleanup pass — verified repository has no unresolved conflict markers and documented PR merge readiness status |
 | Session 7 | VST plugin branding update — changed JUCE `PRODUCT_NAME` to `THD - TotalHarmonicDisplay` so hosts display the new plugin name |
 | Session 8 | Audio-thread safety hardening pass — removed per-block allocations in `processBlock`, added reusable scratch buffers, and ensured Master mode clears consumed MIDI to avoid forwarding stale SysEx events |
+| Session 9 | Initialization and debug workflow pass — documented Visual Studio/Xcode auto-launch setup for AudioPluginHost and centralized processor state clearing via `reset()` for clean plugin starts |
