@@ -150,3 +150,4 @@ export async function GET() {
 | Session 5 | VST3 stabilization pass — fixed JUCE/CMake integration issues, repaired processor syntax/logic errors, added FIFO-based FFT windowing and safer SysEx serialization for channel/master communication |
 | Session 6 | Merge-conflict cleanup pass — verified repository has no unresolved conflict markers and documented PR merge readiness status |
 | Session 7 | VST plugin branding update — changed JUCE `PRODUCT_NAME` to `THD - TotalHarmonicDisplay` so hosts display the new plugin name |
+| Session 8 | Audio-thread safety hardening pass — removed per-block allocations in `processBlock`, added reusable scratch buffers, and ensured Master mode clears consumed MIDI to avoid forwarding stale SysEx events |

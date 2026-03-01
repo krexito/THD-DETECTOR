@@ -295,6 +295,7 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
 private:
+    void ensureScratchBuffers (int numSamples);
     void pushSamplesToAnalysisFifo (const std::vector<float>& monoBuffer);
 
     FFTAnalyzer fftAnalyzer;
@@ -305,6 +306,8 @@ private:
     juce::MidiBuffer midiOutputBuffer;
 
     std::array<float, FFTAnalyzer::fftSize> analysisFifo {};
+    std::array<float, FFTAnalyzer::fftSize> orderedSamplesScratch {};
+    std::vector<float> monoBufferScratch;
     int fifoWritePosition = 0;
     bool fifoFilled = false;
 

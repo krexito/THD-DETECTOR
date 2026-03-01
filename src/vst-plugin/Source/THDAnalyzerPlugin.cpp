@@ -133,6 +133,20 @@ void THDAnalyzerPlugin::pushSamplesToAnalysisFifo (const std::vector<float>& mon
     }
 }
 
+void THDAnalyzerPlugin::ensureScratchBuffers (int numSamples)
+{
+    if (numSamples <= 0)
+    {
+        monoBufferScratch.clear();
+        return;
+    }
+
+    if (monoBufferScratch.size() != static_cast<size_t> (numSamples))
+        monoBufferScratch.assign (static_cast<size_t> (numSamples), 0.0f);
+    else
+        std::fill (monoBufferScratch.begin(), monoBufferScratch.end(), 0.0f);
+}
+
 void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
@@ -144,7 +158,7 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         buffer.clear (channel, 0, buffer.getNumSamples());
 
     const auto numSamples = buffer.getNumSamples();
-    std::vector<float> monoBuffer (static_cast<size_t> (numSamples), 0.0f);
+    ensureScratchBuffers (numSamples);
 
     float peakLevel = 0.0f;
 
@@ -154,7 +168,7 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
 
         for (int i = 0; i < numSamples; ++i)
         {
-            monoBuffer[static_cast<size_t> (i)] += channelData[i];
+            monoBufferScratch[static_cast<size_t> (i)] += channelData[i];
             peakLevel = juce::jmax (peakLevel, std::abs (channelData[i]));
         }
     }
@@ -162,23 +176,21 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     if (totalNumInputChannels > 0)
     {
         const auto invChannels = 1.0f / static_cast<float> (totalNumInputChannels);
-        for (auto& sample : monoBuffer)
+        for (auto& sample : monoBufferScratch)
             sample *= invChannels;
     }
 
-    pushSamplesToAnalysisFifo (monoBuffer);
+    pushSamplesToAnalysisFifo (monoBufferScratch);
 
     if (fifoFilled)
     {
-        std::array<float, FFTAnalyzer::fftSize> orderedSamples {};
-
         for (int i = 0; i < FFTAnalyzer::fftSize; ++i)
         {
             const int index = (fifoWritePosition + i) % FFTAnalyzer::fftSize;
-            orderedSamples[static_cast<size_t> (i)] = analysisFifo[static_cast<size_t> (index)];
+            orderedSamplesScratch[static_cast<size_t> (i)] = analysisFifo[static_cast<size_t> (index)];
         }
 
-        lastAnalysis = fftAnalyzer.analyze (orderedSamples.data(), FFTAnalyzer::fftSize, static_cast<float> (getSampleRate()));
+        lastAnalysis = fftAnalyzer.analyze (orderedSamplesScratch.data(), FFTAnalyzer::fftSize, static_cast<float> (getSampleRate()));
     }
 
     if (pluginMode == PluginMode::ChannelStrip)
@@ -193,6 +205,8 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     {
         for (const auto metadata : midiMessages)
             receiveTHDData (metadata.getMessage());
+
+        midiMessages.clear();
     }
 }
 
