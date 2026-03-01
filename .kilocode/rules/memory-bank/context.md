@@ -151,3 +151,5 @@ export async function GET() {
 | Session 6 | Merge-conflict cleanup pass — verified repository has no unresolved conflict markers and documented PR merge readiness status |
 | Session 7 | VST plugin branding update — changed JUCE `PRODUCT_NAME` to `THD - TotalHarmonicDisplay` so hosts display the new plugin name |
 | Session 8 | Audio-thread safety hardening pass — removed per-block allocations in `processBlock`, added reusable scratch buffers, and ensured Master mode clears consumed MIDI to avoid forwarding stale SysEx events |
+
+| Session 9 | VST automation/state pass — moved host-visible settings to `AudioProcessorValueTreeState` (plugin mode, channel ID, mute/solo flags), switched state save/restore to APVTS ValueTree, and added atomic cached reads for audio-thread-safe parameter access. |
