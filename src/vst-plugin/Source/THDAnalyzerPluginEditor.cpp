@@ -442,7 +442,7 @@ THDAnalyzerPluginEditor::THDAnalyzerPluginEditor (THDAnalyzerPlugin& p)
         { "FX BUS", juce::Colour::fromString ("ff94a3b8"), 0.81f }
     }};
 
-    const auto& valueTreeState = processor.getValueTreeState();
+    auto& valueTreeState = processor.getValueTreeState();
 
     for (size_t i = 0; i < defaultChannels.size(); ++i)
     {
