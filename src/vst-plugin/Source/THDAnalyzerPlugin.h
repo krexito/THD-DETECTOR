@@ -2,7 +2,7 @@
    THD Analyzer VST Plugin
    A real-time THD (Total Harmonic Distortion) analyzer
    Built with JUCE framework
-   
+
    Two plugins:
    1. THD Channel Analyzer - for individual channel strips
    2. THD Master Brain - for master bus analysis
@@ -11,387 +11,304 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <array>
 #include <vector>
 #include <cmath>
-#include <complex>
-#include <dsp/FFT.h>
+#include <cstring>
 
 //==============================================================================
 // FFT Analyzer Class - Ported from TypeScript implementation
 //==============================================================================
-class FFTAnalyzer {
+class FFTAnalyzer
+{
 public:
-    FFTAnalyzer() : fftSize(8192), fft(13), windowBuffer(nullptr) {
-        windowBuffer = new float[fftSize];
-        fftData.resize(fftSize * 2);
-        
-        // Create Hanning window
-        for (int i = 0; i < fftSize; i++) {
-            windowBuffer[i] = 0.5f * (1.0f - std::cos(2.0f * M_PI * i / (fftSize - 1)));
-        }
+    static constexpr int fftOrder = 13;
+    static constexpr int fftSize = 1 << fftOrder;
+
+    FFTAnalyzer()
+        : fft (fftOrder)
+    {
+        windowBuffer.resize (fftSize, 0.0f);
+        fftData.resize (fftSize * 2, 0.0f);
+
+        for (int i = 0; i < fftSize; ++i)
+            windowBuffer[i] = 0.5f * (1.0f - std::cos (2.0f * juce::MathConstants<float>::pi * static_cast<float> (i) / static_cast<float> (fftSize - 1)));
     }
-    
-    ~FFTAnalyzer() {
-        if (windowBuffer) delete[] windowBuffer;
-    }
-    
-    struct AnalysisResult {
-        float fundamentalFrequency;
-        float thd;
-        float thdN;
-        float level;
-        std::vector<float> harmonics; // H2-H8
-        float noiseFloor;
+
+    struct AnalysisResult
+    {
+        float fundamentalFrequency = 0.0f;
+        float thd = 0.0f;
+        float thdN = 0.0f;
+        float level = 0.0f;
+        std::vector<float> harmonics = std::vector<float> (7, 0.0f); // H2-H8
+        float noiseFloor = 0.0f;
     };
-    
-    AnalysisResult analyze(const float* audioBuffer, int bufferSize, float sampleRate) {
-        AnalysisResult result = {0};
-        result.harmonics.resize(7, 0.0f);
-        
-        if (bufferSize < fftSize) {
-            // Zero-pad if needed
+
+    AnalysisResult analyze (const float* input, int numSamples, float sampleRate)
+    {
+        AnalysisResult result;
+
+        if (input == nullptr || numSamples < fftSize || sampleRate <= 0.0f)
             return result;
+
+        std::fill (fftData.begin(), fftData.end(), 0.0f);
+
+        for (int i = 0; i < fftSize; ++i)
+            fftData[i] = input[i] * windowBuffer[i];
+
+        fft.performRealOnlyForwardTransform (fftData.data());
+
+        std::vector<float> magnitude (fftSize / 2, 0.0f);
+        for (int i = 0; i < fftSize / 2; ++i)
+        {
+            const float real = fftData[i * 2];
+            const float imag = fftData[(i * 2) + 1];
+            magnitude[i] = std::sqrt ((real * real) + (imag * imag));
         }
-        
-        // Apply window function and prepare FFT data
-        for (int i = 0; i < fftSize; i++) {
-            fftData[i * 2] = audioBuffer[i] * windowBuffer[i];  // real
-            fftData[i * 2 + 1] = 0.0f;  // imag
-        }
-        
-        // Perform FFT using JUCE's FFT
-        fft.performRealOnlyForwardTransform(fftData.data());
-        
-        // Calculate magnitude spectrum
-        std::vector<float> magnitude(fftSize / 2);
-        for (int i = 0; i < fftSize / 2; i++) {
-            float real = fftData[i * 2];
-            float imag = fftData[i * 2 + 1];
-            magnitude[i] = std::sqrt(real * real + imag * imag);
-        }
-        
-        // Find fundamental frequency (20Hz - 2kHz range)
-        int minBin = static_cast<int>(20.0f * fftSize / sampleRate);
-        int maxBin = static_cast<int>(2000.0f * fftSize / sampleRate);
-        
-        float maxMag = 0;
+
+        const int minBin = juce::jlimit (1, (fftSize / 2) - 1, static_cast<int> ((20.0f * static_cast<float> (fftSize)) / sampleRate));
+        const int maxBin = juce::jlimit (minBin, (fftSize / 2) - 1, static_cast<int> ((2000.0f * static_cast<float> (fftSize)) / sampleRate));
+
+        float maxMag = 0.0f;
         int fundamentalBin = 0;
-        
-        for (int i = minBin; i <= maxBin && i < fftSize / 2; i++) {
-            if (magnitude[i] > maxMag) {
+
+        for (int i = minBin; i <= maxBin; ++i)
+        {
+            if (magnitude[i] > maxMag)
+            {
                 maxMag = magnitude[i];
                 fundamentalBin = i;
             }
         }
-        
-        result.fundamentalFrequency = fundamentalBin * sampleRate / fftSize;
-        
-        // Calculate RMS level
-        float sumSquares = 0;
-        for (int i = 0; i < bufferSize; i++) {
-            sumSquares += audioBuffer[i] * audioBuffer[i];
+
+        result.fundamentalFrequency = static_cast<float> (fundamentalBin) * sampleRate / static_cast<float> (fftSize);
+
+        float sumSquares = 0.0f;
+        for (int i = 0; i < numSamples; ++i)
+            sumSquares += input[i] * input[i];
+
+        result.level = std::sqrt (sumSquares / static_cast<float> (numSamples));
+
+        if (result.fundamentalFrequency <= 0.0f || result.level <= 0.0001f || maxMag <= 0.0f)
+            return result;
+
+        float harmonicSum = 0.0f;
+
+        for (int harmonic = 2; harmonic <= 8; ++harmonic)
+        {
+            const int harmonicBin = static_cast<int> (static_cast<float> (harmonic) * result.fundamentalFrequency * static_cast<float> (fftSize) / sampleRate);
+            if (harmonicBin >= 1 && harmonicBin < fftSize / 2)
+            {
+                const float harmonicMag = magnitude[harmonicBin];
+                result.harmonics[static_cast<size_t> (harmonic - 2)] = harmonicMag;
+                harmonicSum += harmonicMag * harmonicMag;
+            }
         }
-        result.level = std::sqrt(sumSquares / bufferSize);
-        
-        if (result.fundamentalFrequency > 0 && result.level > 0.0001f) {
-            // Analyze harmonics (H2-H8)
-            float harmonicSum = 0;
-            
-            for (int h = 2; h <= 8; h++) {
-                int harmonicBin = static_cast<int>(h * result.fundamentalFrequency * fftSize / sampleRate);
-                
-                if (harmonicBin < fftSize / 2) {
-                    float harmonicMag = magnitude[harmonicBin];
-                    result.harmonics[h-2] = harmonicMag;
-                    harmonicSum += harmonicMag * harmonicMag;
+
+        const float harmonicLevel = std::sqrt (harmonicSum);
+        result.thd = (harmonicLevel / maxMag) * 100.0f;
+
+        float noiseSum = 0.0f;
+        int noiseBins = 0;
+
+        for (int i = minBin; i < fftSize / 2; ++i)
+        {
+            bool isHarmonicRegion = false;
+
+            for (int harmonic = 1; harmonic <= 8; ++harmonic)
+            {
+                const int harmonicBin = static_cast<int> (static_cast<float> (harmonic) * result.fundamentalFrequency * static_cast<float> (fftSize) / sampleRate);
+                if (std::abs (i - harmonicBin) < 10)
+                {
+                    isHarmonicRegion = true;
+                    break;
                 }
             }
-            
-            // Calculate THD
-            float harmonicLevel = std::sqrt(harmonicSum);
-            result.thd = (harmonicLevel / maxMag) * 100.0f;
-            
-            // Estimate noise floor
-            float noiseSum = 0;
-            int noiseBins = 0;
-            
-            // Look at frequency regions away from fundamental and harmonics
-            for (int i = minBin; i < fftSize / 2; i++) {
-                bool isHarmonicRegion = false;
-                for (int h = 1; h <= 8; h++) {
-                    int harmonicBin = static_cast<int>(h * result.fundamentalFrequency * fftSize / sampleRate);
-                    if (std::abs(i - harmonicBin) < 10) {
-                        isHarmonicRegion = true;
-                        break;
-                    }
-                }
-                
-                if (!isHarmonicRegion) {
-                    noiseSum += magnitude[i] * magnitude[i];
-                    noiseBins++;
-                }
+
+            if (! isHarmonicRegion)
+            {
+                noiseSum += magnitude[i] * magnitude[i];
+                ++noiseBins;
             }
-            
-            float noiseLevel = (noiseBins > 0) ? std::sqrt(noiseSum / noiseBins) : 0;
-            
-            // Calculate THD+N
-            result.thdN = ((harmonicLevel + noiseLevel) / maxMag) * 100.0f;
-            result.noiseFloor = noiseLevel;
         }
-        
+
+        const float noiseLevel = noiseBins > 0 ? std::sqrt (noiseSum / static_cast<float> (noiseBins)) : 0.0f;
+        result.thdN = ((harmonicLevel + noiseLevel) / maxMag) * 100.0f;
+        result.noiseFloor = noiseLevel;
+
         return result;
     }
-    
+
 private:
-    int fftSize;
-    dsp::FFT fft;
-    float* windowBuffer;
+    juce::dsp::FFT fft;
+    std::vector<float> windowBuffer;
     std::vector<float> fftData;
 };
 
-//==============================================================================
-// Channel Data Structure
-//==============================================================================
-struct ChannelData {
-    int channelId;
-    String channelName;
-    double thd;
-    double thdN;
-    double level;
-    double peakLevel;
-    std::vector<double> harmonics;
-    bool muted;
-    bool soloed;
-    Colour channelColor;
-    
-    ChannelData(int id, String name, Colour color) 
-        : channelId(id), channelName(name), thd(0), thdN(0), level(0), 
-          peakLevel(0), muted(false), soloed(false), channelColor(color) {
-        harmonics.resize(7, 0.0);
+struct ChannelData
+{
+    int channelId = 0;
+    juce::String channelName;
+    double thd = 0.0;
+    double thdN = 0.0;
+    double level = 0.0;
+    double peakLevel = 0.0;
+    std::vector<double> harmonics = std::vector<double> (7, 0.0);
+    bool muted = false;
+    bool soloed = false;
+    juce::Colour channelColor;
+
+    ChannelData() = default;
+
+    ChannelData (int id, juce::String name, juce::Colour color)
+        : channelId (id), channelName (std::move (name)), channelColor (color)
+    {
     }
 };
 
-//==============================================================================
-// Plugin Mode: Channel Strip vs Master Brain
-//==============================================================================
-enum class PluginMode {
-    ChannelStrip,  // Sends THD data via MIDI to Master Brain
-    MasterBrain   // Receives THD data from all Channel Strips
+enum class PluginMode
+{
+    ChannelStrip,
+    MasterBrain
 };
 
-//==============================================================================
-// THD Data Message for MIDI communication
-//==============================================================================
-struct THDDataMessage {
-    int channelId;           // Which channel (0-7)
-    float thd;               // THD percentage
-    float thdN;              // THD+N percentage
-    float level;             // Signal level (0-1)
-    float peakLevel;         // Peak level (0-1)
-    float harmonics[7];      // H2-H8
-    
-    THDDataMessage() : channelId(0), thd(0), thdN(0), level(0), peakLevel(0) {
-        for(int i = 0; i < 7; i++) harmonics[i] = 0;
+struct THDDataMessage
+{
+    int channelId = 0;
+    float thd = 0.0f;
+    float thdN = 0.0f;
+    float level = 0.0f;
+    float peakLevel = 0.0f;
+    std::array<float, 7> harmonics {};
+
+    void toMidiBytes (juce::MidiMessage& midi) const
+    {
+        std::vector<uint8_t> sysex;
+        sysex.reserve (49);
+
+        sysex.push_back (0xF0);
+        sysex.push_back (0x7D);
+        sysex.push_back (0x01);
+        sysex.push_back (static_cast<uint8_t> (channelId));
+
+        const auto appendFloat = [&sysex] (float value)
+        {
+            std::array<uint8_t, sizeof (float)> bytes {};
+            std::memcpy (bytes.data(), &value, sizeof (float));
+            sysex.insert (sysex.end(), bytes.begin(), bytes.end());
+        };
+
+        appendFloat (thd);
+        appendFloat (thdN);
+        appendFloat (level);
+        appendFloat (peakLevel);
+
+        for (const auto harmonic : harmonics)
+            appendFloat (harmonic);
+
+        sysex.push_back (0xF7);
+        midi = juce::MidiMessage (sysex.data(), static_cast<int> (sysex.size()), 0.0);
     }
-    
-    // Convert to MIDI message bytes
-    void toMidiBytes(MidiMessage& midi) const {
-        // Use MIDI System Exclusive for custom data
-        std::vector<uint8> sysex;
-        sysex.push_back(0xF0);  // Start SysEx
-        sysex.push_back(0x7D);  // Manufacturer ID (non-commercial)
-        sysex.push_back(0x01);  // THD Analyzer ID
-        
-        // Channel ID
-        sysex.push_back(static_cast<uint8_t>(channelId));
-        
-        // THD (4 bytes float)
-        uint8* thdBytes = (uint8*)&thd;
-        for(int i = 0; i < 4; i++) sysex.push_back(thdBytes[i]);
-        
-        // THD+N (4 bytes float)
-        uint8* thdNBytes = (uint8*)&thdN;
-        for(int i = 0; i < 4; i++) sysex.push_back(thdNBytes[i]);
-        
-        // Level (4 bytes float)
-        uint8* levelBytes = (uint8*)&level;
-        for(int i = 0; i < 4; i++) sysex.push_back(levelBytes[i]);
-        
-        // Peak Level (4 bytes float)
-        uint8* peakBytes = (uint8*)&peakLevel;
-        for(int i = 0; i < 4; i++) sysex.push_back(peakBytes[i]);
-        
-        // Harmonics H2-H8 (7 * 4 = 28 bytes)
-        for(int h = 0; h < 7; h++) {
-            uint8* harmBytes = (uint8*)&harmonics[h];
-            for(int i = 0; i < 4; i++) sysex.push_back(harmBytes[i]);
-        }
-        
-        sysex.push_back(0xF7);  // End SysEx
-        
-        midi = MidiMessage(sysex.data(), sysex.size(), 0);
-    }
-    
-    // Parse from MIDI message
-    bool fromMidiBytes(const MidiMessage& midi) {
-        if (!midi.isSysEx()) return false;
-        
-        const uint8* data = midi.getSysExData();
-        int size = midi.getSysExDataSize();
-        
-        if (size < 49) return false;  // Minimum size check
-        if (data[0] != 0x7D || data[1] != 0x01) return false;
-        
+
+    bool fromMidiBytes (const juce::MidiMessage& midi)
+    {
+        if (! midi.isSysEx())
+            return false;
+
+        const auto* data = midi.getSysExData();
+        const int size = midi.getSysExDataSize();
+
+        constexpr int payloadSize = 1 + (4 * 4) + (7 * 4);
+        if (data == nullptr || size < payloadSize + 2)
+            return false;
+
+        if (data[0] != 0x7D || data[1] != 0x01)
+            return false;
+
         int pos = 2;
         channelId = data[pos++];
-        
-        // Parse THD
-        memcpy(&thd, &data[pos], 4);
-        pos += 4;
-        
-        // Parse THD+N
-        memcpy(&thdN, &data[pos], 4);
-        pos += 4;
-        
-        // Parse Level
-        memcpy(&level, &data[pos], 4);
-        pos += 4;
-        
-        // Parse Peak Level
-        memcpy(&peakLevel, &data[pos], 4);
-        pos += 4;
-        
-        // Parse Harmonics
-        for(int h = 0; h < 7; h++) {
-            memcpy(&harmonics[h], &data[pos], 4);
-            pos += 4;
+
+        const auto readFloat = [&data, size, &pos] (float& destination)
+        {
+            if (pos + static_cast<int> (sizeof (float)) > size)
+                return false;
+
+            std::memcpy (&destination, data + pos, sizeof (float));
+            pos += static_cast<int> (sizeof (float));
+            return true;
+        };
+
+        if (! readFloat (thd) || ! readFloat (thdN) || ! readFloat (level) || ! readFloat (peakLevel))
+            return false;
+
+        for (auto& harmonic : harmonics)
+        {
+            if (! readFloat (harmonic))
+                return false;
         }
-        
+
         return true;
     }
 };
-class THDAnalyzerPlugin  : public AudioProcessor
+
+class THDAnalyzerPlugin : public juce::AudioProcessor
 {
 public:
-    //==============================================================================
-    // Communication methods for Channel Strip ↔ Master Brain
-    //==============================================================================
-    
-    // Set plugin mode (Channel Strip or Master Brain)
-    void setPluginMode(PluginMode mode) { pluginMode = mode; }
-    PluginMode getPluginMode() const { return pluginMode; }
-    
-    // Set channel ID for this channel strip (0-7)
-    void setChannelId(int id) { 
-        if (id >= 0 && id < 8) {
-            channelId = id; 
-            channels[0].channelId = id;
-        }
-    }
-    int getChannelId() const { return channelId; }
-    
-    // For Channel Strip: Send THD data via MIDI
-    void sendTHDDataToMaster(const FFTAnalyzer::AnalysisResult& analysis) {
-        if (pluginMode != PluginMode::ChannelStrip) return;
-        
-        THDDataMessage msg;
-        msg.channelId = channelId;
-        msg.thd = analysis.thd;
-        msg.thdN = analysis.thdN;
-        msg.level = analysis.level;
-        msg.peakLevel = analysis.level * 1.5f;  // Approximate peak
-        
-        for(int i = 0; i < 7; i++) {
-            msg.harmonics[i] = (i < analysis.harmonics.size()) ? 
-                               static_cast<float>(analysis.harmonics[i]) : 0.0f;
-        }
-        
-        // Convert to MIDI and store for output
-        MidiMessage midiMsg;
-        msg.toMidiBytes(midiMsg);
-        midiOutputBuffer.addEvent(midiMsg, 0);
-    }
-    
-    // For Master Brain: Receive THD data from channel strips
-    void receiveTHDData(const MidiMessage& midi) {
-        if (pluginMode != PluginMode::MasterBrain) return;
-        
-        THDDataMessage msg;
-        if (msg.fromMidiBytes(midi)) {
-            // Update channel data for this channel
-            if (msg.channelId >= 0 && msg.channelId < 8) {
-                channels[msg.channelId].thd = msg.thd;
-                channels[msg.channelId].thdN = msg.thdN;
-                channels[msg.channelId].level = msg.level;
-                channels[msg.channelId].peakLevel = msg.peakLevel;
-                
-                for(int i = 0; i < 7; i++) {
-                    if (i < channels[msg.channelId].harmonics.size()) {
-                        channels[msg.channelId].harmonics[i] = msg.harmonics[i];
-                    }
-                }
-            }
-        }
-    }
-    
-    // Get MIDI output for DAW to receive
-    MidiBuffer& getMidiOutput() { return midiOutputBuffer; }
-    
-    //==============================================================================
     THDAnalyzerPlugin();
     ~THDAnalyzerPlugin() override;
 
-    //==============================================================================
+    void setPluginMode (PluginMode mode) { pluginMode = mode; }
+    PluginMode getPluginMode() const { return pluginMode; }
+
+    void setChannelId (int id);
+    int getChannelId() const { return channelId; }
+
+    void sendTHDDataToMaster (const FFTAnalyzer::AnalysisResult& analysis, float peakLevel);
+    void receiveTHDData (const juce::MidiMessage& midi);
+
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
 
-    #ifndef JucePlugin_PreferredChannelConfigurations
+   #ifndef JucePlugin_PreferredChannelConfigurations
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
-    #endif
+   #endif
 
-    void processBlock (AudioBuffer<float>&, MidiBuffer&) override;
+    void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
-    //==============================================================================
-    AudioProcessorEditor* createEditor() override;
+    juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override;
 
-    //==============================================================================
-    const String getName() const override;
+    const juce::String getName() const override;
     bool acceptsMidi() const override;
     bool producesMidi() const override;
     bool isMidiEffect() const override;
     double getTailLengthSeconds() const override;
 
-    //==============================================================================
     int getNumPrograms() override;
     int getCurrentProgram() override;
     void setCurrentProgram (int index) override;
-    const String getProgramName (int index) override;
-    void changeProgramName (int index, const String& newName) override;
+    const juce::String getProgramName (int index) override;
+    void changeProgramName (int index, const juce::String& newName) override;
 
-    //==============================================================================
-    void getStateInformation (MemoryBlock& destData) override;
+    void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    // Flexible analyzer - works on whatever channel configuration it's inserted on
-    // Use on channel strips for per-channel analysis, or on master for mix analysis
-    FFTAnalyzer fftAnalyzer;
-    
-    // Buffer for audio analysis
-    std::vector<float> audioBuffer;
-    int bufferPosition;
+private:
+    void pushSamplesToAnalysisFifo (const std::vector<float>& monoBuffer);
 
-    // Analysis results
+    FFTAnalyzer fftAnalyzer;
     FFTAnalyzer::AnalysisResult lastAnalysis;
-    
-    // Communication system variables
+
     PluginMode pluginMode = PluginMode::ChannelStrip;
     int channelId = 0;
-    MidiBuffer midiOutputBuffer;
-    
-    // Channel data for Master Brain mode
+    juce::MidiBuffer midiOutputBuffer;
+
+    std::array<float, FFTAnalyzer::fftSize> analysisFifo {};
+    int fifoWritePosition = 0;
+    bool fifoFilled = false;
+
     std::vector<ChannelData> channels;
-    int maxBufferSize;
-    
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (THDAnalyzerPlugin)
 };

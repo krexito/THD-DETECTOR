@@ -4,142 +4,209 @@
 
 #include "THDAnalyzerPlugin.h"
 
-//==============================================================================
-// Plugin Implementation
-//==============================================================================
-
 THDAnalyzerPlugin::THDAnalyzerPlugin()
 #ifndef JucePlugin_PreferredChannelConfigurations
-     : AudioProcessor (BusesProperties()
-                     #if ! JucePlugin_IsMidiEffect
-                      #if ! JucePlugin_IsSynth
-                       .withInput  ("Input",  AudioChannelSet::stereo(), 0)
-                      #endif
-                       .withOutput ("Output", AudioChannelSet::stereo(), 0)
+    : AudioProcessor (BusesProperties()
+                    #if ! JucePlugin_IsMidiEffect
+                     #if ! JucePlugin_IsSynth
+                      .withInput ("Input", juce::AudioChannelSet::stereo(), true)
                      #endif
-                       )
+                      .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                    #endif
+                      )
 #endif
 {
-    audioBuffer.clear();
-    bufferPosition = 0;
+    channels = {
+        { 0, "KICK", juce::Colours::red },
+        { 1, "SNARE", juce::Colours::orange },
+        { 2, "BASS", juce::Colours::yellow },
+        { 3, "GTR L", juce::Colours::green },
+        { 4, "GTR R", juce::Colours::cyan },
+        { 5, "KEYS", juce::Colours::blue },
+        { 6, "VOX", juce::Colours::purple },
+        { 7, "FX BUS", juce::Colours::pink }
+    };
 }
 
-THDAnalyzerPlugin::~THDAnalyzerPlugin()
+THDAnalyzerPlugin::~THDAnalyzerPlugin() = default;
+
+void THDAnalyzerPlugin::setChannelId (int id)
 {
+    if (juce::isPositiveAndBelow (id, static_cast<int> (channels.size())))
+    {
+        channelId = id;
+        channels[0].channelId = id;
+    }
 }
 
-//==============================================================================
-void THDAnalyzerPlugin::prepareToPlay (double sampleRate, int samplesPerBlock)
+void THDAnalyzerPlugin::sendTHDDataToMaster (const FFTAnalyzer::AnalysisResult& analysis, float peakLevel)
 {
-    // Ensure we have enough buffer space
-    maxBufferSize = samplesPerBlock * getTotalNumInputChannels();
-    channelBuffers.resize(maxBufferSize);
-    
-    // Reset all channel data
-    for (auto& channel : channels) {
-        channel.thd = 0;
-        channel.thdN = 0;
-        channel.level = 0;
-        channel.peakLevel = 0;
-        std::fill(channel.harmonics.begin(), channel.harmonics.end(), 0.0);
+    if (pluginMode != PluginMode::ChannelStrip)
+        return;
+
+    THDDataMessage msg;
+    msg.channelId = channelId;
+    msg.thd = analysis.thd;
+    msg.thdN = analysis.thdN;
+    msg.level = analysis.level;
+    msg.peakLevel = peakLevel;
+
+    for (size_t i = 0; i < msg.harmonics.size(); ++i)
+        msg.harmonics[i] = i < analysis.harmonics.size() ? analysis.harmonics[i] : 0.0f;
+
+    juce::MidiMessage midiMsg;
+    msg.toMidiBytes (midiMsg);
+    midiOutputBuffer.addEvent (midiMsg, 0);
+}
+
+void THDAnalyzerPlugin::receiveTHDData (const juce::MidiMessage& midi)
+{
+    if (pluginMode != PluginMode::MasterBrain)
+        return;
+
+    THDDataMessage msg;
+    if (! msg.fromMidiBytes (midi))
+        return;
+
+    if (! juce::isPositiveAndBelow (msg.channelId, static_cast<int> (channels.size())))
+        return;
+
+    auto& channel = channels[static_cast<size_t> (msg.channelId)];
+    channel.thd = msg.thd;
+    channel.thdN = msg.thdN;
+    channel.level = msg.level;
+    channel.peakLevel = msg.peakLevel;
+
+    for (size_t i = 0; i < channel.harmonics.size() && i < msg.harmonics.size(); ++i)
+        channel.harmonics[i] = msg.harmonics[i];
+}
+
+void THDAnalyzerPlugin::prepareToPlay (double, int)
+{
+    std::fill (analysisFifo.begin(), analysisFifo.end(), 0.0f);
+    fifoWritePosition = 0;
+    fifoFilled = false;
+    midiOutputBuffer.clear();
+
+    for (auto& channel : channels)
+    {
+        channel.thd = 0.0;
+        channel.thdN = 0.0;
+        channel.level = 0.0;
+        channel.peakLevel = 0.0;
+        std::fill (channel.harmonics.begin(), channel.harmonics.end(), 0.0);
     }
 }
 
 void THDAnalyzerPlugin::releaseResources()
 {
-    // Prepare audio buffer for analysis
-    audioBuffer.resize(8192, 0.0f);
+    midiOutputBuffer.clear();
+}
 
-//==============================================================================
 #ifndef JucePlugin_PreferredChannelConfigurations
 bool THDAnalyzerPlugin::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    // Support mono and stereo configurations
-    #if JucePlugin_IsMidiEffect
+   #if JucePlugin_IsMidiEffect
+    juce::ignoreUnused (layouts);
     return true;
-    #else
-    // This plugin supports any channel configuration (mono, stereo, 5.1, etc.)
-    if (layouts.getMainInputChannels() > 0 && layouts.getMainOutputChannels() > 0)
-        return true;
-    
-    return false;
-    #endif
+   #else
+    const auto inputSet = layouts.getMainInputChannelSet();
+    const auto outputSet = layouts.getMainOutputChannelSet();
+
+    if (inputSet.isDisabled() || outputSet.isDisabled())
+        return false;
+
+    return inputSet == outputSet;
+   #endif
 }
 #endif
 
-void THDAnalyzerPlugin::processBlock (AudioBuffer<float>& buffer, MidiBuffer& midiMessages)
+void THDAnalyzerPlugin::pushSamplesToAnalysisFifo (const std::vector<float>& monoBuffer)
 {
-    // This plugin analyzes whatever audio comes into it
-    // Works on any channel configuration (stereo, 5.1, etc.)
-    // Use on channel strips or master bus - same analyzer works for both
-    
-    ScopedNoDenormals noDenormals;
-    auto totalNumInputChannels  = getTotalNumInputChannels();
-    auto totalNumOutputChannels = getTotalNumInputChannels();
-    
-    // Clear unused channels
-    for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
-        buffer.clear (i, 0, buffer.getNumSamples());
-    
-    // Mix all input channels to mono for analysis
-    int numSamples = buffer.getNumSamples();
-    std::vector<float> monoBuffer(numSamples, 0.0f);
-    
-    // Mix down to mono
-    for (int channel = 0; channel < totalNumInputChannels; channel++) {
-        const float* channelData = buffer.getReadPointer(channel);
-        for (int i = 0; i < numSamples; i++) {
-            monoBuffer[i] += channelData[i];
-        }
-    }
-    
-    // Normalize by number of channels
-    if (totalNumInputChannels > 0) {
-        for (int i = 0; i < numSamples; i++) {
-            monoBuffer[i] /= totalNumInputChannels;
-        }
-    }
-    
-    // Perform FFT analysis on mixed audio
-    double sampleRate = getSampleRate();
-    lastAnalysis = fftAnalyzer.analyze(monoBuffer.data(), numSamples, sampleRate);
-    
-    // Handle communication based on plugin mode
-    if (pluginMode == PluginMode::ChannelStrip) {
-        // Channel Strip: Send THD data to Master Brain via MIDI
-        sendTHDDataToMaster(lastAnalysis);
-        
-        // Clear MIDI input (we don't need input in Channel Strip mode)
-        midiMessages.clear();
-        
-        // Add our MIDI output to the buffer
-        midiMessages.addEvents(midiOutputBuffer, 0, midiOutputBuffer.getNumEvents(), 0);
-        midiOutputBuffer.clear();
-        
-    } else if (pluginMode == PluginMode::MasterBrain) {
-        // Master Brain: Receive THD data from Channel Strips
-        for (const MidiMessageMetadata metadata : midiMessages) {
-            const MidiMessage& midi = metadata.getMessage();
-            if (midi.isSysEx()) {
-                receiveTHDData(midi);
-            }
-        }
+    for (const auto sample : monoBuffer)
+    {
+        analysisFifo[static_cast<size_t> (fifoWritePosition)] = sample;
+        fifoWritePosition = (fifoWritePosition + 1) % FFTAnalyzer::fftSize;
+
+        if (fifoWritePosition == 0)
+            fifoFilled = true;
     }
 }
 
-//==============================================================================
+void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+{
+    juce::ScopedNoDenormals noDenormals;
+
+    const auto totalNumInputChannels = getTotalNumInputChannels();
+    const auto totalNumOutputChannels = getTotalNumOutputChannels();
+
+    for (auto channel = totalNumInputChannels; channel < totalNumOutputChannels; ++channel)
+        buffer.clear (channel, 0, buffer.getNumSamples());
+
+    const auto numSamples = buffer.getNumSamples();
+    std::vector<float> monoBuffer (static_cast<size_t> (numSamples), 0.0f);
+
+    float peakLevel = 0.0f;
+
+    for (int channel = 0; channel < totalNumInputChannels; ++channel)
+    {
+        const auto* channelData = buffer.getReadPointer (channel);
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            monoBuffer[static_cast<size_t> (i)] += channelData[i];
+            peakLevel = juce::jmax (peakLevel, std::abs (channelData[i]));
+        }
+    }
+
+    if (totalNumInputChannels > 0)
+    {
+        const auto invChannels = 1.0f / static_cast<float> (totalNumInputChannels);
+        for (auto& sample : monoBuffer)
+            sample *= invChannels;
+    }
+
+    pushSamplesToAnalysisFifo (monoBuffer);
+
+    if (fifoFilled)
+    {
+        std::array<float, FFTAnalyzer::fftSize> orderedSamples {};
+
+        for (int i = 0; i < FFTAnalyzer::fftSize; ++i)
+        {
+            const int index = (fifoWritePosition + i) % FFTAnalyzer::fftSize;
+            orderedSamples[static_cast<size_t> (i)] = analysisFifo[static_cast<size_t> (index)];
+        }
+
+        lastAnalysis = fftAnalyzer.analyze (orderedSamples.data(), FFTAnalyzer::fftSize, static_cast<float> (getSampleRate()));
+    }
+
+    if (pluginMode == PluginMode::ChannelStrip)
+    {
+        sendTHDDataToMaster (lastAnalysis, peakLevel);
+
+        midiMessages.clear();
+        midiMessages.addEvents (midiOutputBuffer, 0, numSamples, 0);
+        midiOutputBuffer.clear();
+    }
+    else if (pluginMode == PluginMode::MasterBrain)
+    {
+        for (const auto metadata : midiMessages)
+            receiveTHDData (metadata.getMessage());
+    }
+}
+
 bool THDAnalyzerPlugin::hasEditor() const
 {
     return true;
 }
 
-AudioProcessorEditor* THDAnalyzerPlugin::createEditor()
+juce::AudioProcessorEditor* THDAnalyzerPlugin::createEditor()
 {
-    return new GenericAudioProcessorEditor (*this);
+    return new juce::GenericAudioProcessorEditor (*this);
 }
 
-//==============================================================================
-const String THDAnalyzerPlugin::getName() const
+const juce::String THDAnalyzerPlugin::getName() const
 {
     return JucePlugin_Name;
 }
@@ -173,10 +240,9 @@ bool THDAnalyzerPlugin::isMidiEffect() const
 
 double THDAnalyzerPlugin::getTailLengthSeconds() const
 {
-    return 0;
+    return 0.0;
 }
 
-//==============================================================================
 int THDAnalyzerPlugin::getNumPrograms()
 {
     return 1;
@@ -187,54 +253,57 @@ int THDAnalyzerPlugin::getCurrentProgram()
     return 0;
 }
 
-void THDAnalyzerPlugin::setCurrentProgram (int index)
+void THDAnalyzerPlugin::setCurrentProgram (int)
 {
 }
 
-const String THDAnalyzerPlugin::getProgramName (int index)
+const juce::String THDAnalyzerPlugin::getProgramName (int)
 {
     return {};
 }
 
-void THDAnalyzerPlugin::changeProgramName (int index, const String& newName)
+void THDAnalyzerPlugin::changeProgramName (int, const juce::String&)
 {
 }
 
-//==============================================================================
-void THDAnalyzerPlugin::getStateInformation (MemoryBlock& destData)
+void THDAnalyzerPlugin::getStateInformation (juce::MemoryBlock& destData)
 {
-    // Save plugin state
-    XmlElement xml ("THDAnalyzerSettings");
-    
-    for (int i = 0; i < channels.size(); i++) {
-        XmlElement* channelXml = xml.createNewChildElement("channel");
-        channelXml->setAttribute("id", channels[i].channelId);
-        channelXml->setAttribute("muted", channels[i].muted);
-        channelXml->setAttribute("soloed", channels[i].soloed);
+    juce::XmlElement xml ("THDAnalyzerSettings");
+    xml.setAttribute ("pluginMode", static_cast<int> (pluginMode));
+    xml.setAttribute ("channelId", channelId);
+
+    for (const auto& channel : channels)
+    {
+        auto* channelXml = xml.createNewChildElement ("channel");
+        channelXml->setAttribute ("id", channel.channelId);
+        channelXml->setAttribute ("muted", channel.muted);
+        channelXml->setAttribute ("soloed", channel.soloed);
     }
-    
+
     copyXmlToBinary (xml, destData);
 }
 
 void THDAnalyzerPlugin::setStateInformation (const void* data, int sizeInBytes)
 {
-    // Restore plugin state
-    std::unique_ptr<XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
-    
-    if (xml != nullptr) {
-        for (auto* channelXml : xml->getChildIterator()) {
-            int id = channelXml->getIntAttribute("id");
-            if (id >= 0 && id < channels.size()) {
-                channels[id].muted = channelXml->getBoolAttribute("muted", false);
-                channels[id].soloed = channelXml->getBoolAttribute("soloed", false);
-            }
-        }
+    const std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
+
+    if (xml == nullptr)
+        return;
+
+    pluginMode = static_cast<PluginMode> (xml->getIntAttribute ("pluginMode", static_cast<int> (PluginMode::ChannelStrip)));
+    setChannelId (xml->getIntAttribute ("channelId", 0));
+
+    for (auto* channelXml : xml->getChildIterator())
+    {
+        const auto id = channelXml->getIntAttribute ("id");
+        if (! juce::isPositiveAndBelow (id, static_cast<int> (channels.size())))
+            continue;
+
+        channels[static_cast<size_t> (id)].muted = channelXml->getBoolAttribute ("muted", false);
+        channels[static_cast<size_t> (id)].soloed = channelXml->getBoolAttribute ("soloed", false);
     }
 }
 
-//==============================================================================
-// Plugin Entry Point
-//==============================================================================
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new THDAnalyzerPlugin();
