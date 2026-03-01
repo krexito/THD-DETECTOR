@@ -162,3 +162,5 @@ export async function GET() {
 | Session 12 | JUCE UI implementation pass — replaced GenericAudioProcessorEditor with a custom `THDAnalyzerPluginEditor`, added THD Analyzer v2.0 native layout (sticky header, scrollable channel cards, master brain placeholders), and wired CMake to compile the new editor source files. |
 
 | Session 13 | VST parameter wiring pass — exposed APVTS accessors/parameter ID helpers to editor scope and wired channel card mute/solo buttons to APVTS `ButtonAttachment`s for host automation-safe parameter sync. |
+
+| Session 14 | VST const-correctness build fix — ensured editor binds `ButtonAttachment`s using non-const APVTS accessor, while keeping both const and non-const `getValueTreeState()` overloads available in processor API. |
