@@ -297,11 +297,14 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    juce::AudioProcessorValueTreeState& getValueTreeState() noexcept;
+    const juce::AudioProcessorValueTreeState& getValueTreeState() const noexcept;
+    static juce::String channelMutedParamId (int channelIndex);
+    static juce::String channelSoloedParamId (int channelIndex);
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void syncCachedParametersFromState();
-    static juce::String channelMutedParamId (int channelIndex);
-    static juce::String channelSoloedParamId (int channelIndex);
 
     void ensureScratchBuffers (int numSamples);
     void pushSamplesToAnalysisFifo (const std::vector<float>& monoBuffer);
