@@ -197,6 +197,42 @@ Tip: Ensure your plugin is installed in a scanned VST3 location (`~/Library/Audi
 
 ## Troubleshooting
 
+### Git / PR merge conflicts
+
+If GitHub reports **"This branch has conflicts that must be resolved"**, resolve them locally before pushing:
+
+```bash
+# 1) Ensure you are on your PR branch
+git checkout <your-pr-branch>
+
+# 2) Fetch latest target branch state
+git fetch origin
+
+# 3) Merge target branch (usually main) into your branch
+git merge origin/main
+```
+
+If conflicts appear, open each file and resolve the `<<<<<<<`, `=======`, `>>>>>>>` blocks, then run:
+
+```bash
+# 4) Mark resolved files
+git add <resolved-file-1> <resolved-file-2>
+
+# 5) Create merge commit
+git commit -m "Resolve merge conflicts with main"
+
+# 6) Push updated branch to refresh the PR
+git push origin <your-pr-branch>
+```
+
+Quick conflict sanity check:
+
+```bash
+rg -n "^(<<<<<<<|=======|>>>>>>>)"
+```
+
+If this command returns no output, no unresolved conflict markers remain.
+
 ### Windows Issues
 
 #### "Visual Studio not found"
