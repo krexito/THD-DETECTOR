@@ -6,8 +6,12 @@ import { useEffect, useRef } from "react";
 export class FFTAnalyzer {
   private audioContext: AudioContext | null = null;
   private analyserNode: AnalyserNode | null = null;
-  private oscillators: Map<string, OscillatorNode> = new Map();
-  private gains: Map<string, GainNode> = new Map();
+  private channelSignals: Map<string, {
+    primaryOscillator: OscillatorNode;
+    detuneOscillator: OscillatorNode;
+    outputGain: GainNode;
+    detuneGain: GainNode;
+  }> = new Map();
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -53,30 +57,34 @@ export class FFTAnalyzer {
     oscillator.start();
     detune.start();
     
-    this.oscillators.set(channelId, oscillator);
-    this.gains.set(channelId, gainNode);
+    this.channelSignals.set(channelId, {
+      primaryOscillator: oscillator,
+      detuneOscillator: detune,
+      outputGain: gainNode,
+      detuneGain,
+    });
   }
 
   // Set amplitude for existing signal
   setAmplitude(channelId: string, amplitude: number): void {
-    const gain = this.gains.get(channelId);
-    if (gain && this.audioContext) {
-      gain.gain.setTargetAtTime(amplitude, this.audioContext.currentTime, 0.01);
+    const signal = this.channelSignals.get(channelId);
+    if (signal && this.audioContext) {
+      signal.outputGain.gain.setTargetAtTime(amplitude, this.audioContext.currentTime, 0.01);
+      signal.detuneGain.gain.setTargetAtTime(amplitude * 0.3, this.audioContext.currentTime, 0.01);
     }
   }
 
   // Stop signal for a channel
   stopSignal(channelId: string): void {
-    const oscillator = this.oscillators.get(channelId);
-    if (oscillator) {
-      oscillator.stop();
-      this.oscillators.delete(channelId);
-    }
-    const gain = this.gains.get(channelId);
-    if (gain) {
-      gain.disconnect();
-      this.gains.delete(channelId);
-    }
+    const signal = this.channelSignals.get(channelId);
+    if (!signal) return;
+
+    signal.primaryOscillator.stop();
+    signal.detuneOscillator.stop();
+    signal.detuneGain.disconnect();
+    signal.outputGain.disconnect();
+
+    this.channelSignals.delete(channelId);
   }
 
   // Perform FFT analysis and calculate THD
@@ -219,10 +227,7 @@ export class FFTAnalyzer {
 
   // Cleanup
   dispose(): void {
-    this.oscillators.forEach(osc => osc.stop());
-    this.oscillators.clear();
-    this.gains.forEach(gain => gain.disconnect());
-    this.gains.clear();
+    this.channelSignals.forEach((_, channelId) => this.stopSignal(channelId));
     if (this.audioContext) {
       this.audioContext.close();
     }

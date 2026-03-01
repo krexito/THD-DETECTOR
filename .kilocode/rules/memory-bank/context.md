@@ -21,6 +21,7 @@ The THD Analyzer project has evolved from a web-based analyzer to include native
 - [x] THD Analyzer v2 — Pure measurement architecture (no signal coloring)
 - [x] THD Analyzer v3 — Real FFT analysis using Web Audio API AnalyserNode
 - [x] VST Plugin Communication System — MIDI-based Channel Strip ↔ Master Brain communication
+- [x] Fixed FFT analyzer signal lifecycle bug: detune oscillators are now tracked/stopped per channel and detune gain follows level automation
 
 ## Current Structure
 
@@ -146,3 +147,4 @@ export async function GET() {
 | Session 2 | THD Analyzer v2 — Pure measurement architecture, Master Brain plugin |
 | Session 3 | THD Analyzer v3 — Real FFT analysis using Web Audio API AnalyserNode |
 | Session 4 | VST Plugin Development — Started native VST3 plugin with JUCE framework |
+| Session 5 | Fixed Web FFT analyzer signal cleanup bug (detune oscillator leak) and synchronized detune gain automation with channel level updates |
