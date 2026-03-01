@@ -317,7 +317,7 @@ bool THDAnalyzerPlugin::hasEditor() const
 
 juce::AudioProcessorEditor* THDAnalyzerPlugin::createEditor()
 {
-    return new juce::GenericAudioProcessorEditor (state);
+    return new juce::GenericAudioProcessorEditor (*this);
 }
 
 const juce::String THDAnalyzerPlugin::getName() const
