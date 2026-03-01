@@ -15,6 +15,7 @@
 #include <vector>
 #include <cmath>
 #include <cstring>
+#include <atomic>
 
 //==============================================================================
 // FFT Analyzer Class - Ported from TypeScript implementation
@@ -258,11 +259,11 @@ public:
     THDAnalyzerPlugin();
     ~THDAnalyzerPlugin() override;
 
-    void setPluginMode (PluginMode mode) { pluginMode = mode; }
-    PluginMode getPluginMode() const { return pluginMode; }
+    void setPluginMode (PluginMode mode);
+    PluginMode getPluginMode() const;
 
     void setChannelId (int id);
-    int getChannelId() const { return channelId; }
+    int getChannelId() const;
 
     void sendTHDDataToMaster (const FFTAnalyzer::AnalysisResult& analysis, float peakLevel);
     void receiveTHDData (const juce::MidiMessage& midi);
@@ -296,14 +297,20 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
 private:
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void syncCachedParametersFromState();
+    static juce::String channelMutedParamId (int channelIndex);
+    static juce::String channelSoloedParamId (int channelIndex);
+
     void ensureScratchBuffers (int numSamples);
     void pushSamplesToAnalysisFifo (const std::vector<float>& monoBuffer);
 
     FFTAnalyzer fftAnalyzer;
     FFTAnalyzer::AnalysisResult lastAnalysis;
 
-    PluginMode pluginMode = PluginMode::ChannelStrip;
-    int channelId = 0;
+    juce::AudioProcessorValueTreeState state;
+    std::atomic<int> cachedPluginMode { static_cast<int> (PluginMode::ChannelStrip) };
+    std::atomic<int> cachedChannelId { 0 };
     juce::MidiBuffer midiOutputBuffer;
 
     std::array<float, FFTAnalyzer::fftSize> analysisFifo {};
