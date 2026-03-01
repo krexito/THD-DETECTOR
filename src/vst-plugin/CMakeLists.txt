@@ -32,6 +32,7 @@ juce_add_plugin(THDAnalyzerPlugin
 target_sources(THDAnalyzerPlugin
     PRIVATE
         Source/THDAnalyzerPlugin.cpp
+        Source/THDAnalyzerPluginEditor.cpp
 )
 
 target_include_directories(THDAnalyzerPlugin
