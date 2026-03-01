@@ -222,7 +222,7 @@ class THDAnalyzerPluginEditor::ChannelCard final : public juce::Component,
                                                     private juce::Timer
 {
 public:
-    explicit ChannelCard (UIChannelModel channel)
+    explicit ChannelCard (UIChannelModel channel, bool isMuted, bool isSoloed)
         : model (std::move (channel)), waveform ("WAVEFORM"), removeButton ("x")
     {
         addAndMakeVisible (waveform);
@@ -240,6 +240,9 @@ public:
         removeButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.45f));
         removeButton.setTooltip ("Remove channel (UI placeholder)");
         addAndMakeVisible (removeButton);
+
+        muteButton.setToggleState (isMuted, juce::dontSendNotification);
+        soloButton.setToggleState (isSoloed, juce::dontSendNotification);
 
         setInterceptsMouseClicks (true, true);
         startTimerHz (12);
@@ -288,6 +291,9 @@ public:
     void mouseEnter (const juce::MouseEvent&) override { hovered = true; }
     void mouseExit (const juce::MouseEvent&) override { hovered = false; }
 
+    juce::Button& getMuteButton() noexcept { return muteButton; }
+    juce::Button& getSoloButton() noexcept { return soloButton; }
+
 private:
     void configureButton (juce::TextButton& button, const juce::String& text)
     {
@@ -297,7 +303,7 @@ private:
         button.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.75f));
         button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
         button.setClickingTogglesState (true);
-        button.setTooltip ("UI-only control. TODO: bind to APVTS mute/solo parameters.");
+        button.setTooltip ("Automatable APVTS mute/solo control.");
         button.setConnectedEdges (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
         addAndMakeVisible (button);
     }
@@ -436,9 +442,32 @@ THDAnalyzerPluginEditor::THDAnalyzerPluginEditor (THDAnalyzerPlugin& p)
         { "FX BUS", juce::Colour::fromString ("ff94a3b8"), 0.81f }
     }};
 
-    for (const auto& channel : defaultChannels)
+    const auto& valueTreeState = processor.getValueTreeState();
+
+    for (size_t i = 0; i < defaultChannels.size(); ++i)
     {
-        auto card = std::make_unique<ChannelCard> (channel);
+        const auto& channel = defaultChannels[i];
+        const auto muteParamId = THDAnalyzerPlugin::channelMutedParamId (static_cast<int> (i));
+        const auto soloParamId = THDAnalyzerPlugin::channelSoloedParamId (static_cast<int> (i));
+
+        const auto* mutedParam = valueTreeState.getRawParameterValue (muteParamId);
+        const auto* soloedParam = valueTreeState.getRawParameterValue (soloParamId);
+
+        auto card = std::make_unique<ChannelCard> (
+            channel,
+            mutedParam != nullptr ? mutedParam->load() >= 0.5f : false,
+            soloedParam != nullptr ? soloedParam->load() >= 0.5f : false);
+
+        muteAttachments[i] = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+            valueTreeState,
+            muteParamId,
+            card->getMuteButton());
+
+        soloAttachments[i] = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+            valueTreeState,
+            soloParamId,
+            card->getSoloButton());
+
         channelViewportContent.addAndMakeVisible (*card);
         channelCards.push_back (std::move (card));
 
@@ -455,7 +484,6 @@ THDAnalyzerPluginEditor::THDAnalyzerPluginEditor (THDAnalyzerPlugin& p)
     addAndMakeVisible (*harmonicPlaceholder);
     addAndMakeVisible (*historyPlaceholder);
 
-    // TODO: Add APVTS attachments and processor listeners once DSP exposes dedicated UI parameters.
     startTimerHz (20);
 }
 

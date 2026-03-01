@@ -321,6 +321,16 @@ juce::AudioProcessorEditor* THDAnalyzerPlugin::createEditor()
     return new THDAnalyzerPluginEditor (*this);
 }
 
+const juce::AudioProcessorValueTreeState& THDAnalyzerPlugin::getValueTreeState() const noexcept
+{
+    return state;
+}
+
+juce::AudioProcessorValueTreeState& THDAnalyzerPlugin::getValueTreeState() noexcept
+{
+    return state;
+}
+
 const juce::String THDAnalyzerPlugin::getName() const
 {
     return JucePlugin_Name;
