@@ -156,3 +156,5 @@ export async function GET() {
 | Session 9 | VST automation/state pass — moved host-visible settings to `AudioProcessorValueTreeState` (plugin mode, channel ID, mute/solo flags), switched state save/restore to APVTS ValueTree, and added atomic cached reads for audio-thread-safe parameter access. |
 | Session 9 | Initialization and debug workflow pass — documented Visual Studio/Xcode auto-launch setup for AudioPluginHost and centralized processor state clearing via `reset()` for clean plugin starts |
 | Session 10 | PR conflict-support docs pass — added step-by-step local merge conflict resolution workflow and marker sanity check to VST local build guide |
+| Session 11 | VST build-fix pass — replaced umbrella JUCE include with explicit `juce_audio_utils` + `juce_dsp` headers, corrected `createEditor()` to construct `GenericAudioProcessorEditor` with `*this`, and added `JUCE_VST3_CAN_REPLACE_VST2=0` compile definition in CMake. |
+
