@@ -3,6 +3,8 @@
 #include "THDAnalyzerPlugin.h"
 #include <array>
 
+#include <array>
+
 class THDAnalyzerPluginEditor final : public juce::AudioProcessorEditor,
                                       private juce::Timer
 {
@@ -26,9 +28,11 @@ private:
     THDAnalyzerPlugin& processor;
 
     std::unique_ptr<HeaderBar> headerBar;
-    juce::Viewport channelViewport;
     juce::Component channelViewportContent;
+    juce::Viewport channelViewport;
     std::vector<std::unique_ptr<ChannelCard>> channelCards;
+    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>, 8> muteAttachments;
+    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>, 8> soloAttachments;
 
     juce::ComboBox pluginModeCombo;
     juce::ComboBox channelIdCombo;
