@@ -6,7 +6,6 @@
 #include "THDAnalyzerPluginEditor.h"
 
 THDAnalyzerPlugin::THDAnalyzerPlugin()
-#ifndef JucePlugin_PreferredChannelConfigurations
     : AudioProcessor (BusesProperties()
                     #if ! JucePlugin_IsMidiEffect
                      #if ! JucePlugin_IsSynth
@@ -16,9 +15,6 @@ THDAnalyzerPlugin::THDAnalyzerPlugin()
                     #endif
                       )
     , state (*this, nullptr, "THDAnalyzerParameters", createParameterLayout())
-#else
-    : state (*this, nullptr, "THDAnalyzerParameters", createParameterLayout())
-#endif
 {
     cacheParameterPointers();
 
@@ -262,23 +258,25 @@ void THDAnalyzerPlugin::releaseResources()
     midiOutputBuffer.clear();
 }
 
-#ifndef JucePlugin_PreferredChannelConfigurations
 bool THDAnalyzerPlugin::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
    #if JucePlugin_IsMidiEffect
     juce::ignoreUnused (layouts);
     return true;
    #else
+    if (layouts.inputBuses.size() != 1 || layouts.outputBuses.size() != 1)
+        return false;
+
     const auto inputSet = layouts.getMainInputChannelSet();
     const auto outputSet = layouts.getMainOutputChannelSet();
 
     if (inputSet.isDisabled() || outputSet.isDisabled())
         return false;
 
-    return inputSet == outputSet;
+    return inputSet == juce::AudioChannelSet::stereo()
+        && outputSet == juce::AudioChannelSet::stereo();
    #endif
 }
-#endif
 
 void THDAnalyzerPlugin::pushSamplesToAnalysisFifo (const std::vector<float>& monoBuffer)
 {

@@ -26,7 +26,7 @@ juce_add_plugin(THDAnalyzerPlugin
     PLUGIN_CODE THAN
     FORMATS VST3
     PRODUCT_NAME "THD - TotalHarmonicDisplay"
-    PLUGIN_CHANNEL_CONFIGURATIONS "{1,1},{2,2},{6,6},{8,8}"
+    PLUGIN_CHANNEL_CONFIGURATIONS "{2,2}"
 )
 
 target_sources(THDAnalyzerPlugin

@@ -164,3 +164,7 @@ export async function GET() {
 | Session 13 | PR #10 follow-up fix pass — bound custom editor controls to APVTS parameters (plugin mode, channel ID, per-channel mute/solo) and removed randomized THD display updates in favor of processor analysis/channel data snapshots. |
 | Session 14 | VST editor compile-fix pass — made `CanvasPlaceholder` inherit `juce::SettableTooltipClient` so tooltip updates in `timerCallback()` compile correctly with JUCE. |
 
+
+| Session 15 | VST3 bus-layout compatibility pass — aligned processor bus declaration, `isBusesLayoutSupported`, and JUCE `PLUGIN_CHANNEL_CONFIGURATIONS` to stereo-only `{2,2}` to prevent host scan-time null-component channel queries. |
+
+| Session 16 | VST3 scan-compat follow-up — tightened `isBusesLayoutSupported` to reject non-main/aux bus layouts and disabled buses, keeping runtime acceptance strictly aligned to a single stereo input/output bus. |
