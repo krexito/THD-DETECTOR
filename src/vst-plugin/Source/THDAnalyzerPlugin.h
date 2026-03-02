@@ -266,7 +266,6 @@ public:
 
     void setChannelId (int id);
     int getChannelId() const;
-    juce::AudioProcessorValueTreeState& getValueTreeState();
     FFTAnalyzer::AnalysisResult getLastAnalysisResult() const;
     std::vector<ChannelData> getChannelsSnapshot() const;
 
@@ -310,8 +309,6 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void cacheParameterPointers();
     void syncCachedParametersFromState();
-    static juce::String channelMutedParamId (int channelIndex);
-    static juce::String channelSoloedParamId (int channelIndex);
     bool restoreLegacyStateIfNeeded (const juce::XmlElement& xml);
 
     void parameterChanged (const juce::String& parameterID, float newValue) override;
