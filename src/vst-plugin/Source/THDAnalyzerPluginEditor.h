@@ -1,6 +1,7 @@
 #pragma once
 
 #include "THDAnalyzerPlugin.h"
+#include <array>
 
 class THDAnalyzerPluginEditor final : public juce::AudioProcessorEditor,
                                       private juce::Timer
@@ -20,12 +21,23 @@ private:
     class ProgressBarRow;
     class CanvasPlaceholder;
 
+    void configureModeControls();
+
     THDAnalyzerPlugin& processor;
 
     std::unique_ptr<HeaderBar> headerBar;
     juce::Viewport channelViewport;
     juce::Component channelViewportContent;
     std::vector<std::unique_ptr<ChannelCard>> channelCards;
+
+    juce::ComboBox pluginModeCombo;
+    juce::ComboBox channelIdCombo;
+    juce::Label pluginModeLabel;
+    juce::Label channelIdLabel;
+
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> pluginModeAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> channelIdAttachment;
+
 
     std::unique_ptr<CanvasPlaceholder> masterGaugePlaceholder;
     std::unique_ptr<CanvasPlaceholder> harmonicPlaceholder;

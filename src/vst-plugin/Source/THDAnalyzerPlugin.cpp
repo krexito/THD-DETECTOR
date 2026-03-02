@@ -87,6 +87,7 @@ void THDAnalyzerPlugin::syncCachedParametersFromState()
     if (const auto* channelParam = state.getRawParameterValue ("channelId"))
         cachedChannelId.store (juce::jlimit (0, 7, static_cast<int> (channelParam->load())), std::memory_order_release);
 
+    const juce::SpinLock::ScopedLockType lock (analysisDataLock);
     for (size_t i = 0; i < channels.size(); ++i)
     {
         if (const auto* mutedParam = state.getRawParameterValue (channelMutedParamId (static_cast<int> (i))))
@@ -120,6 +121,8 @@ void THDAnalyzerPlugin::setChannelId (int id)
             channelParam->setValueNotifyingHost (state.getParameterRange ("channelId").convertTo0to1 (static_cast<float> (id)));
 
         cachedChannelId.store (id, std::memory_order_release);
+
+        const juce::SpinLock::ScopedLockType lock (analysisDataLock);
         channels[0].channelId = id;
     }
 }
@@ -127,6 +130,23 @@ void THDAnalyzerPlugin::setChannelId (int id)
 int THDAnalyzerPlugin::getChannelId() const
 {
     return cachedChannelId.load (std::memory_order_acquire);
+}
+
+juce::AudioProcessorValueTreeState& THDAnalyzerPlugin::getValueTreeState()
+{
+    return state;
+}
+
+FFTAnalyzer::AnalysisResult THDAnalyzerPlugin::getLastAnalysisResult() const
+{
+    const juce::SpinLock::ScopedLockType lock (analysisDataLock);
+    return lastAnalysis;
+}
+
+std::vector<ChannelData> THDAnalyzerPlugin::getChannelsSnapshot() const
+{
+    const juce::SpinLock::ScopedLockType lock (analysisDataLock);
+    return channels;
 }
 
 void THDAnalyzerPlugin::sendTHDDataToMaster (const FFTAnalyzer::AnalysisResult& analysis, float peakLevel)
@@ -161,6 +181,7 @@ void THDAnalyzerPlugin::receiveTHDData (const juce::MidiMessage& midi)
     if (! juce::isPositiveAndBelow (msg.channelId, static_cast<int> (channels.size())))
         return;
 
+    const juce::SpinLock::ScopedLockType lock (analysisDataLock);
     auto& channel = channels[static_cast<size_t> (msg.channelId)];
     channel.thd = msg.thd;
     channel.thdN = msg.thdN;
@@ -182,18 +203,24 @@ void THDAnalyzerPlugin::reset()
     std::fill (orderedSamplesScratch.begin(), orderedSamplesScratch.end(), 0.0f);
     monoBufferScratch.clear();
 
-    lastAnalysis = FFTAnalyzer::AnalysisResult {};
+    {
+        const juce::SpinLock::ScopedLockType lock (analysisDataLock);
+        lastAnalysis = FFTAnalyzer::AnalysisResult {};
+    }
     fifoWritePosition = 0;
     fifoFilled = false;
     midiOutputBuffer.clear();
 
-    for (auto& channel : channels)
     {
-        channel.thd = 0.0;
-        channel.thdN = 0.0;
-        channel.level = 0.0;
-        channel.peakLevel = 0.0;
-        std::fill (channel.harmonics.begin(), channel.harmonics.end(), 0.0);
+        const juce::SpinLock::ScopedLockType lock (analysisDataLock);
+        for (auto& channel : channels)
+        {
+            channel.thd = 0.0;
+            channel.thdN = 0.0;
+            channel.level = 0.0;
+            channel.peakLevel = 0.0;
+            std::fill (channel.harmonics.begin(), channel.harmonics.end(), 0.0);
+        }
     }
 }
 
@@ -289,14 +316,19 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
             orderedSamplesScratch[static_cast<size_t> (i)] = analysisFifo[static_cast<size_t> (index)];
         }
 
-        lastAnalysis = fftAnalyzer.analyze (orderedSamplesScratch.data(), FFTAnalyzer::fftSize, static_cast<float> (getSampleRate()));
+        const auto analysis = fftAnalyzer.analyze (orderedSamplesScratch.data(), FFTAnalyzer::fftSize, static_cast<float> (getSampleRate()));
+        {
+            const juce::SpinLock::ScopedLockType lock (analysisDataLock);
+            lastAnalysis = analysis;
+        }
     }
 
     syncCachedParametersFromState();
 
     if (getPluginMode() == PluginMode::ChannelStrip)
     {
-        sendTHDDataToMaster (lastAnalysis, peakLevel);
+        const auto analysisForMidi = getLastAnalysisResult();
+        sendTHDDataToMaster (analysisForMidi, peakLevel);
 
         midiMessages.clear();
         midiMessages.addEvents (midiOutputBuffer, 0, numSamples, 0);
