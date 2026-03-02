@@ -3,8 +3,6 @@
 #include "THDAnalyzerPlugin.h"
 #include <array>
 
-#include <array>
-
 class THDAnalyzerPluginEditor final : public juce::AudioProcessorEditor,
                                       private juce::Timer
 {
@@ -21,7 +19,10 @@ private:
     class HeaderBar;
     class ChannelCard;
     class ProgressBarRow;
-    class CanvasPlaceholder;
+    class WaveformMiniDisplay;
+    class MasterGaugeDisplay;
+    class HarmonicSpectrumDisplay;
+    class HistoryTimelineDisplay;
 
     void configureModeControls();
 
@@ -43,9 +44,9 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> channelIdAttachment;
 
 
-    std::unique_ptr<CanvasPlaceholder> masterGaugePlaceholder;
-    std::unique_ptr<CanvasPlaceholder> harmonicPlaceholder;
-    std::unique_ptr<CanvasPlaceholder> historyPlaceholder;
+    std::unique_ptr<MasterGaugeDisplay> masterGaugeDisplay;
+    std::unique_ptr<HarmonicSpectrumDisplay> harmonicSpectrumDisplay;
+    std::unique_ptr<HistoryTimelineDisplay> historyTimelineDisplay;
     std::vector<std::unique_ptr<ProgressBarRow>> progressRows;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (THDAnalyzerPluginEditor)
