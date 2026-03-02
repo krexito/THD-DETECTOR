@@ -461,8 +461,6 @@ void THDAnalyzerPluginEditor::configureModeControls()
 THDAnalyzerPluginEditor::THDAnalyzerPluginEditor (THDAnalyzerPlugin& p)
     : AudioProcessorEditor (&p), processor (p)
 {
-    setSize (1120, 760);
-
     headerBar = std::make_unique<HeaderBar>();
     addAndMakeVisible (*headerBar);
     configureModeControls();
@@ -503,10 +501,15 @@ THDAnalyzerPluginEditor::THDAnalyzerPluginEditor (THDAnalyzerPlugin& p)
     addAndMakeVisible (*harmonicPlaceholder);
     addAndMakeVisible (*historyPlaceholder);
 
+    setSize (1120, 760);
+
     startTimerHz (20);
 }
 
-THDAnalyzerPluginEditor::~THDAnalyzerPluginEditor() = default;
+THDAnalyzerPluginEditor::~THDAnalyzerPluginEditor()
+{
+    stopTimer();
+}
 
 void THDAnalyzerPluginEditor::paint (juce::Graphics& g)
 {
@@ -569,6 +572,9 @@ void THDAnalyzerPluginEditor::paint (juce::Graphics& g)
 
 void THDAnalyzerPluginEditor::resized()
 {
+    if (headerBar == nullptr || masterGaugePlaceholder == nullptr || harmonicPlaceholder == nullptr || historyPlaceholder == nullptr)
+        return;
+
     headerBar->setBounds (0, 0, getWidth(), 50);
 
     pluginModeLabel.setBounds (24, 58, 70, 16);
@@ -604,6 +610,12 @@ void THDAnalyzerPluginEditor::resized()
 
 void THDAnalyzerPluginEditor::timerCallback()
 {
+    if (! processor.isEditorDataReady())
+        return;
+
+    if (masterGaugePlaceholder == nullptr || harmonicPlaceholder == nullptr || historyPlaceholder == nullptr)
+        return;
+
     for (auto& card : channelCards)
         card->refreshFromProcessor();
 

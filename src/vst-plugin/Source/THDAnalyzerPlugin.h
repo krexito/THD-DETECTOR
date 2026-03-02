@@ -266,6 +266,7 @@ public:
 
     void setChannelId (int id);
     int getChannelId() const;
+    bool isEditorDataReady() const noexcept;
     FFTAnalyzer::AnalysisResult getLastAnalysisResult() const;
     std::vector<ChannelData> getChannelsSnapshot() const;
 
@@ -324,6 +325,7 @@ private:
     std::array<std::atomic<float>*, 8> channelSoloedParamValues {};
     std::atomic<int> cachedPluginMode { static_cast<int> (PluginMode::ChannelStrip) };
     std::atomic<int> cachedChannelId { 0 };
+    std::atomic<bool> editorDataReady { false };
     juce::MidiBuffer midiOutputBuffer;
 
     std::array<float, FFTAnalyzer::fftSize> analysisFifo {};
