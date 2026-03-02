@@ -168,3 +168,4 @@ export async function GET() {
 | Session 15 | VST3 bus-layout compatibility pass — aligned processor bus declaration, `isBusesLayoutSupported`, and JUCE `PLUGIN_CHANNEL_CONFIGURATIONS` to stereo-only `{2,2}` to prevent host scan-time null-component channel queries. |
 
 | Session 16 | VST3 scan-compat follow-up — tightened `isBusesLayoutSupported` to reject non-main/aux bus layouts and disabled buses, keeping runtime acceptance strictly aligned to a single stereo input/output bus. |
+

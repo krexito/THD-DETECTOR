@@ -166,6 +166,11 @@ int THDAnalyzerPlugin::getChannelId() const
     return cachedChannelId.load (std::memory_order_acquire);
 }
 
+bool THDAnalyzerPlugin::isEditorDataReady() const noexcept
+{
+    return editorDataReady.load (std::memory_order_acquire);
+}
+
 FFTAnalyzer::AnalysisResult THDAnalyzerPlugin::getLastAnalysisResult() const
 {
     const juce::SpinLock::ScopedLockType lock (analysisDataLock);
@@ -223,7 +228,9 @@ void THDAnalyzerPlugin::receiveTHDData (const juce::MidiMessage& midi)
 
 void THDAnalyzerPlugin::prepareToPlay (double, int)
 {
+    editorDataReady.store (false, std::memory_order_release);
     reset();
+    editorDataReady.store (true, std::memory_order_release);
 }
 
 void THDAnalyzerPlugin::reset()
@@ -255,6 +262,7 @@ void THDAnalyzerPlugin::reset()
 
 void THDAnalyzerPlugin::releaseResources()
 {
+    editorDataReady.store (false, std::memory_order_release);
     midiOutputBuffer.clear();
 }
 
