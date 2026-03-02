@@ -169,3 +169,5 @@ export async function GET() {
 
 | Session 16 | VST3 scan-compat follow-up — tightened `isBusesLayoutSupported` to reject non-main/aux bus layouts and disabled buses, keeping runtime acceptance strictly aligned to a single stereo input/output bus. |
 
+| Session 17 | VST GUI crash fix pass — clamped animated header pulse alpha into [0,1] before `withAlpha()` to avoid JUCE debug assertion breaks in host paint loop. |
+| Session 18 | VST editor UX pass — replaced temporary canvas placeholders (waveform/gauge/harmonic/history) with live-rendered analyzer widgets driven by processor analysis snapshots. |

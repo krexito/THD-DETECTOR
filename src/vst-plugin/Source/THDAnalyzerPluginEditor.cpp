@@ -80,13 +80,59 @@ juce::String statusTextForThd (float thd)
 }
 }
 
-class THDAnalyzerPluginEditor::CanvasPlaceholder final : public juce::Component,
-                                                          public juce::SettableTooltipClient
+class THDAnalyzerPluginEditor::WaveformMiniDisplay final : public juce::Component
 {
 public:
-    explicit CanvasPlaceholder (juce::String labelToUse)
-        : label (std::move (labelToUse))
+    void setLevel (float newLevel)
     {
+        targetLevel = juce::jlimit (0.0f, 1.0f, newLevel);
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto bounds = getLocalBounds().toFloat();
+        g.setColour (ColorPalette::surfaceB.withAlpha (0.9f));
+        g.fillRoundedRectangle (bounds, 8.0f);
+        g.setColour (ColorPalette::borderA.withAlpha (0.8f));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, 1.0f);
+
+        level = (level * 0.8f) + (targetLevel * 0.2f);
+
+        juce::Path wave;
+        const auto width = juce::jmax (1.0f, bounds.getWidth() - 12.0f);
+        const auto centreY = bounds.getCentreY();
+        const auto amplitude = 4.0f + (level * 12.0f);
+        wave.startNewSubPath (bounds.getX() + 6.0f, centreY);
+
+        constexpr int points = 40;
+        for (int i = 1; i <= points; ++i)
+        {
+            const auto x = bounds.getX() + 6.0f + (width * static_cast<float> (i) / static_cast<float> (points));
+            const auto t = (phase + static_cast<float> (i) * 0.35f);
+            const auto y = centreY + amplitude * std::sin (t) * std::exp (-0.02f * static_cast<float> (i));
+            wave.lineTo (x, y);
+        }
+
+        phase += 0.18f;
+        g.setColour (ColorPalette::accentBlue.withAlpha (0.85f));
+        g.strokePath (wave, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+private:
+    float level = 0.0f;
+    float targetLevel = 0.0f;
+    float phase = 0.0f;
+};
+
+class THDAnalyzerPluginEditor::MasterGaugeDisplay final : public juce::Component,
+                                                           public juce::SettableTooltipClient
+{
+public:
+    void setValue (float newThdN)
+    {
+        thdN = juce::jmax (0.0f, newThdN);
+        repaint();
     }
 
     void paint (juce::Graphics& g) override
@@ -94,21 +140,139 @@ public:
         auto bounds = getLocalBounds().toFloat();
         g.setColour (ColorPalette::surfaceB.withAlpha (0.85f));
         g.fillRoundedRectangle (bounds, 8.0f);
-
-        g.setColour (ColorPalette::borderA);
+        g.setColour (ColorPalette::borderA.withAlpha (0.85f));
         g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, 1.0f);
 
-        g.setColour (juce::Colours::white.withAlpha (0.2f));
-        g.drawLine (bounds.getX() + 8.0f, bounds.getY() + 8.0f, bounds.getRight() - 8.0f, bounds.getBottom() - 8.0f, 1.0f);
-        g.drawLine (bounds.getRight() - 8.0f, bounds.getY() + 8.0f, bounds.getX() + 8.0f, bounds.getBottom() - 8.0f, 1.0f);
+        auto dialArea = bounds.reduced (12.0f, 10.0f);
+        const auto radius = juce::jmin (dialArea.getWidth(), dialArea.getHeight()) * 0.42f;
+        const auto centre = dialArea.getCentre();
 
-        g.setColour (juce::Colours::white.withAlpha (0.5f));
-        g.setFont (makeMonoFont (9.0f));
-        g.drawText (label, getLocalBounds(), juce::Justification::centred);
+        juce::Path track;
+        track.addCentredArc (centre.x, centre.y, radius, radius, 0.0f,
+                             juce::MathConstants<float>::pi * 1.15f,
+                             juce::MathConstants<float>::pi * 2.85f,
+                             true);
+        g.setColour (juce::Colours::white.withAlpha (0.15f));
+        g.strokePath (track, juce::PathStrokeType (5.0f));
+
+        const auto normalised = juce::jlimit (0.0f, 1.0f, thdN / 5.0f);
+        juce::Path active;
+        active.addCentredArc (centre.x, centre.y, radius, radius, 0.0f,
+                              juce::MathConstants<float>::pi * 1.15f,
+                              juce::MathConstants<float>::pi * (1.15f + (1.7f * normalised)),
+                              true);
+
+        const auto statusColour = statusColourForThd (thdN);
+        g.setColour (statusColour.withAlpha (0.95f));
+        g.strokePath (active, juce::PathStrokeType (5.0f));
+
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.setFont (makeMonoFont (13.0f, true));
+        g.drawText (juce::String (thdN, 2) + "%", getLocalBounds().withTrimmedTop (36), juce::Justification::centred);
     }
 
 private:
-    juce::String label;
+    float thdN = 0.0f;
+};
+
+class THDAnalyzerPluginEditor::HarmonicSpectrumDisplay final : public juce::Component,
+                                                                public juce::SettableTooltipClient
+{
+public:
+    void setData (const std::vector<float>& harmonicsToUse)
+    {
+        harmonics = harmonicsToUse;
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto bounds = getLocalBounds().toFloat();
+        g.setColour (ColorPalette::surfaceB.withAlpha (0.88f));
+        g.fillRoundedRectangle (bounds, 8.0f);
+        g.setColour (ColorPalette::borderA.withAlpha (0.8f));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, 1.0f);
+
+        auto plotArea = bounds.reduced (12.0f, 12.0f);
+        const auto bins = juce::jmin (7, static_cast<int> (harmonics.size()));
+        if (bins <= 0)
+            return;
+
+        float peak = 0.0001f;
+        for (int i = 0; i < bins; ++i)
+            peak = juce::jmax (peak, harmonics[static_cast<size_t> (i)]);
+
+        const auto barWidth = (plotArea.getWidth() - (static_cast<float> (bins - 1) * 6.0f)) / static_cast<float> (bins);
+        for (int i = 0; i < bins; ++i)
+        {
+            const auto value = juce::jlimit (0.0f, 1.0f, harmonics[static_cast<size_t> (i)] / peak);
+            auto bar = juce::Rectangle<float> (plotArea.getX() + static_cast<float> (i) * (barWidth + 6.0f),
+                                               plotArea.getBottom() - plotArea.getHeight() * value,
+                                               barWidth,
+                                               plotArea.getHeight() * value);
+            const auto colour = statusColourForThd (value * 2.0f);
+            g.setColour (colour.withAlpha (0.85f));
+            g.fillRoundedRectangle (bar, 2.5f);
+
+            g.setColour (juce::Colours::white.withAlpha (0.65f));
+            g.setFont (makeMonoFont (8.0f));
+            g.drawText ("H" + juce::String (i + 2),
+                        juce::Rectangle<int> (static_cast<int> (bar.getX()), static_cast<int> (plotArea.getBottom()) - 12,
+                                              static_cast<int> (bar.getWidth()), 12),
+                        juce::Justification::centred);
+        }
+    }
+
+private:
+    std::vector<float> harmonics = std::vector<float> (7, 0.0f);
+};
+
+class THDAnalyzerPluginEditor::HistoryTimelineDisplay final : public juce::Component,
+                                                               public juce::SettableTooltipClient
+{
+public:
+    void pushValue (float value)
+    {
+        history.push_back (juce::jmax (0.0f, value));
+        while (history.size() > 180)
+            history.erase (history.begin());
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto bounds = getLocalBounds().toFloat();
+        g.setColour (ColorPalette::surfaceB.withAlpha (0.9f));
+        g.fillRoundedRectangle (bounds, 8.0f);
+        g.setColour (ColorPalette::borderA.withAlpha (0.8f));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, 1.0f);
+
+        auto plotArea = bounds.reduced (10.0f, 10.0f);
+        if (history.size() < 2)
+            return;
+
+        float peak = 0.0001f;
+        for (const auto v : history)
+            peak = juce::jmax (peak, v);
+
+        juce::Path line;
+        for (size_t i = 0; i < history.size(); ++i)
+        {
+            const auto norm = juce::jlimit (0.0f, 1.0f, history[i] / juce::jmax (0.5f, peak));
+            const auto x = plotArea.getX() + plotArea.getWidth() * static_cast<float> (i) / static_cast<float> (history.size() - 1);
+            const auto y = plotArea.getBottom() - plotArea.getHeight() * norm;
+            if (i == 0)
+                line.startNewSubPath (x, y);
+            else
+                line.lineTo (x, y);
+        }
+
+        g.setColour (ColorPalette::accentBlue.withAlpha (0.9f));
+        g.strokePath (line, juce::PathStrokeType (1.8f));
+    }
+
+private:
+    std::vector<float> history;
 };
 
 class Badge final : public juce::Component
@@ -223,7 +387,7 @@ class THDAnalyzerPluginEditor::ChannelCard final : public juce::Component
 {
 public:
     ChannelCard (THDAnalyzerPlugin& processorToUse, int channelIndexToUse, UIChannelModel channel)
-        : processor (processorToUse), channelIndex (channelIndexToUse), model (std::move (channel)), waveform ("WAVEFORM"), removeButton ("x")
+        : processor (processorToUse), channelIndex (channelIndexToUse), model (std::move (channel)), removeButton ("x")
     {
         addAndMakeVisible (waveform);
         addAndMakeVisible (badge);
@@ -311,7 +475,9 @@ public:
         thdLabel.setText (juce::String (model.thdN, 2) + "% THD+N", juce::dontSendNotification);
         thdLabel.setColour (juce::Label::textColourId, statusColour);
         badge.setBadge (statusTextForThd (model.thdN), statusColour);
-        vuMeter.setLevel (juce::jlimit (0.0f, 1.0f, static_cast<float> (channelData.peakLevel)));
+        const auto channelPeak = juce::jlimit (0.0f, 1.0f, static_cast<float> (channelData.peakLevel));
+        vuMeter.setLevel (channelPeak);
+        waveform.setLevel (channelPeak + juce::jlimit (0.0f, 0.2f, static_cast<float> (channelData.level) * 0.15f));
 
         hoverMix = juce::jlimit (0.35f, 1.0f, hoverMix + (hovered ? 0.08f : -0.08f));
         removeButton.setAlpha (hoverMix - 0.2f);
@@ -337,7 +503,7 @@ private:
     THDAnalyzerPlugin& processor;
     int channelIndex = 0;
     UIChannelModel model;
-    CanvasPlaceholder waveform;
+    WaveformMiniDisplay waveform;
     Badge badge;
     VUMeter vuMeter;
     juce::Label thdLabel;
@@ -406,7 +572,7 @@ private:
     void timerCallback() override
     {
         phase += 0.15f;
-        pulse = 0.45f + 0.55f * std::sin (phase);
+        pulse = juce::jlimit (0.0f, 1.0f, 0.45f + 0.55f * std::sin (phase));
         repaint();
     }
 
@@ -493,13 +659,13 @@ THDAnalyzerPluginEditor::THDAnalyzerPluginEditor (THDAnalyzerPlugin& p)
         progressRows.push_back (std::move (row));
     }
 
-    masterGaugePlaceholder = std::make_unique<CanvasPlaceholder> ("CIRCULAR GAUGE 160x110");
-    harmonicPlaceholder = std::make_unique<CanvasPlaceholder> ("HARMONIC SPECTRUM H2-H8");
-    historyPlaceholder = std::make_unique<CanvasPlaceholder> ("THD HISTORY TIMELINE");
+    masterGaugeDisplay = std::make_unique<MasterGaugeDisplay>();
+    harmonicSpectrumDisplay = std::make_unique<HarmonicSpectrumDisplay>();
+    historyTimelineDisplay = std::make_unique<HistoryTimelineDisplay>();
 
-    addAndMakeVisible (*masterGaugePlaceholder);
-    addAndMakeVisible (*harmonicPlaceholder);
-    addAndMakeVisible (*historyPlaceholder);
+    addAndMakeVisible (*masterGaugeDisplay);
+    addAndMakeVisible (*harmonicSpectrumDisplay);
+    addAndMakeVisible (*historyTimelineDisplay);
 
     setSize (1120, 760);
 
@@ -572,7 +738,7 @@ void THDAnalyzerPluginEditor::paint (juce::Graphics& g)
 
 void THDAnalyzerPluginEditor::resized()
 {
-    if (headerBar == nullptr || masterGaugePlaceholder == nullptr || harmonicPlaceholder == nullptr || historyPlaceholder == nullptr)
+    if (headerBar == nullptr || masterGaugeDisplay == nullptr || harmonicSpectrumDisplay == nullptr || historyTimelineDisplay == nullptr)
         return;
 
     headerBar->setBounds (0, 0, getWidth(), 50);
@@ -596,7 +762,7 @@ void THDAnalyzerPluginEditor::resized()
 
     channelViewportContent.setSize (x + 8, cardHeight);
 
-    masterGaugePlaceholder->setBounds (36, 368, 160, 110);
+    masterGaugeDisplay->setBounds (36, 368, 160, 110);
 
     auto statsX = 208;
     auto y = 368;
@@ -604,8 +770,8 @@ void THDAnalyzerPluginEditor::resized()
     for (size_t i = 0; i < progressRows.size(); ++i)
         progressRows[i]->setBounds (statsX, y + static_cast<int> (i) * rowHeight, 280, rowHeight);
 
-    harmonicPlaceholder->setBounds (500, 368, getWidth() - 536, 110);
-    historyPlaceholder->setBounds (36, 492, getWidth() - 72, getHeight() - 520);
+    harmonicSpectrumDisplay->setBounds (500, 368, getWidth() - 536, 110);
+    historyTimelineDisplay->setBounds (36, 492, getWidth() - 72, getHeight() - 520);
 }
 
 void THDAnalyzerPluginEditor::timerCallback()
@@ -613,16 +779,21 @@ void THDAnalyzerPluginEditor::timerCallback()
     if (! processor.isEditorDataReady())
         return;
 
-    if (masterGaugePlaceholder == nullptr || harmonicPlaceholder == nullptr || historyPlaceholder == nullptr)
+    if (masterGaugeDisplay == nullptr || harmonicSpectrumDisplay == nullptr || historyTimelineDisplay == nullptr)
         return;
 
     for (auto& card : channelCards)
         card->refreshFromProcessor();
 
     const auto analysis = processor.getLastAnalysisResult();
-    masterGaugePlaceholder->setTooltip ("THD+N " + juce::String (analysis.thdN, 2) + "%");
-    harmonicPlaceholder->setTooltip ("Fundamental " + juce::String (analysis.fundamentalFrequency, 1) + " Hz");
-    historyPlaceholder->setTooltip ("Noise floor " + juce::String (analysis.noiseFloor, 5));
+    masterGaugeDisplay->setValue (analysis.thdN);
+    masterGaugeDisplay->setTooltip ("THD+N " + juce::String (analysis.thdN, 2) + "%");
+
+    harmonicSpectrumDisplay->setData (analysis.harmonics);
+    harmonicSpectrumDisplay->setTooltip ("Fundamental " + juce::String (analysis.fundamentalFrequency, 1) + " Hz");
+
+    historyTimelineDisplay->pushValue (analysis.thdN);
+    historyTimelineDisplay->setTooltip ("Noise floor " + juce::String (analysis.noiseFloor, 5));
 
     repaint();
 }
