@@ -170,11 +170,6 @@ int THDAnalyzerPlugin::getChannelId() const
     return cachedChannelId.load (std::memory_order_acquire);
 }
 
-juce::AudioProcessorValueTreeState& THDAnalyzerPlugin::getValueTreeState()
-{
-    return state;
-}
-
 FFTAnalyzer::AnalysisResult THDAnalyzerPlugin::getLastAnalysisResult() const
 {
     const juce::SpinLock::ScopedLockType lock (analysisDataLock);
