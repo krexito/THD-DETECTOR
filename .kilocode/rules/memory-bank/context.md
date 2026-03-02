@@ -157,3 +157,14 @@ export async function GET() {
 | Session 9 | Initialization and debug workflow pass — documented Visual Studio/Xcode auto-launch setup for AudioPluginHost and centralized processor state clearing via `reset()` for clean plugin starts |
 | Session 10 | PR conflict-support docs pass — added step-by-step local merge conflict resolution workflow and marker sanity check to VST local build guide |
 | Session 11 | PR #7 follow-up hardening — cached APVTS raw parameter pointers and listener-driven cache sync to remove per-block parameter lookups in `processBlock`, plus legacy `THDAnalyzerSettings` XML migration into current mute/solo APVTS parameters during state restore. |
+| Session 11 | VST build-fix pass — replaced umbrella JUCE include with explicit `juce_audio_utils` + `juce_dsp` headers, corrected `createEditor()` to construct `GenericAudioProcessorEditor` with `*this`, and added `JUCE_VST3_CAN_REPLACE_VST2=0` compile definition in CMake. |
+
+
+| Session 12 | JUCE UI implementation pass — replaced GenericAudioProcessorEditor with a custom `THDAnalyzerPluginEditor`, added THD Analyzer v2.0 native layout (sticky header, scrollable channel cards, master brain placeholders), and wired CMake to compile the new editor source files. |
+
+| Session 13 | VST parameter wiring pass — exposed APVTS accessors/parameter ID helpers to editor scope and wired channel card mute/solo buttons to APVTS `ButtonAttachment`s for host automation-safe parameter sync. |
+
+| Session 14 | VST const-correctness build fix — ensured editor binds `ButtonAttachment`s using non-const APVTS accessor, while keeping both const and non-const `getValueTreeState()` overloads available in processor API. |
+
+| Session 15 | JUCE editor crash hardening pass — fixed member destruction order so `juce::Viewport` is destroyed before its viewed content component, preventing host crashes when opening/closing the plugin GUI. |
+

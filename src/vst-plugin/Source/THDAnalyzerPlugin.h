@@ -10,7 +10,8 @@
 
 #pragma once
 
-#include <JuceHeader.h>
+#include <juce_audio_utils/juce_audio_utils.h>
+#include <juce_dsp/juce_dsp.h>
 #include <array>
 #include <vector>
 #include <cmath>
@@ -296,6 +297,11 @@ public:
 
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
+
+    juce::AudioProcessorValueTreeState& getValueTreeState() noexcept;
+    const juce::AudioProcessorValueTreeState& getValueTreeState() const noexcept;
+    static juce::String channelMutedParamId (int channelIndex);
+    static juce::String channelSoloedParamId (int channelIndex);
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

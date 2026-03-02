@@ -32,6 +32,7 @@ juce_add_plugin(THDAnalyzerPlugin
 target_sources(THDAnalyzerPlugin
     PRIVATE
         Source/THDAnalyzerPlugin.cpp
+        Source/THDAnalyzerPluginEditor.cpp
 )
 
 target_include_directories(THDAnalyzerPlugin
@@ -43,6 +44,7 @@ target_compile_definitions(THDAnalyzerPlugin
     PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
 )
 
 target_link_libraries(THDAnalyzerPlugin
