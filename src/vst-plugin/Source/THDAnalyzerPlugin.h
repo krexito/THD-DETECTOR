@@ -265,6 +265,9 @@ public:
 
     void setChannelId (int id);
     int getChannelId() const;
+    juce::AudioProcessorValueTreeState& getValueTreeState();
+    FFTAnalyzer::AnalysisResult getLastAnalysisResult() const;
+    std::vector<ChannelData> getChannelsSnapshot() const;
 
     void sendTHDDataToMaster (const FFTAnalyzer::AnalysisResult& analysis, float peakLevel);
     void receiveTHDData (const juce::MidiMessage& midi);
@@ -321,6 +324,7 @@ private:
     bool fifoFilled = false;
 
     std::vector<ChannelData> channels;
+    mutable juce::SpinLock analysisDataLock;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (THDAnalyzerPlugin)
 };

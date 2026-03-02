@@ -218,12 +218,11 @@ private:
     float value = 0.0f;
 };
 
-class THDAnalyzerPluginEditor::ChannelCard final : public juce::Component,
-                                                    private juce::Timer
+class THDAnalyzerPluginEditor::ChannelCard final : public juce::Component
 {
 public:
-    explicit ChannelCard (UIChannelModel channel)
-        : model (std::move (channel)), waveform ("WAVEFORM"), removeButton ("x")
+    ChannelCard (THDAnalyzerPlugin& processorToUse, int channelIndexToUse, UIChannelModel channel)
+        : processor (processorToUse), channelIndex (channelIndexToUse), model (std::move (channel)), waveform ("WAVEFORM"), removeButton ("x")
     {
         addAndMakeVisible (waveform);
         addAndMakeVisible (badge);
@@ -241,9 +240,19 @@ public:
         removeButton.setTooltip ("Remove channel (UI placeholder)");
         addAndMakeVisible (removeButton);
 
+        auto& state = processor.getValueTreeState();
+        muteAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+            state,
+            "channelMuted" + juce::String (channelIndex),
+            muteButton);
+
+        soloAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+            state,
+            "channelSoloed" + juce::String (channelIndex),
+            soloButton);
+
         setInterceptsMouseClicks (true, true);
-        startTimerHz (12);
-        refreshFromModel();
+        refreshFromProcessor();
     }
 
     void paint (juce::Graphics& g) override
@@ -288,6 +297,26 @@ public:
     void mouseEnter (const juce::MouseEvent&) override { hovered = true; }
     void mouseExit (const juce::MouseEvent&) override { hovered = false; }
 
+    void refreshFromProcessor()
+    {
+        const auto channels = processor.getChannelsSnapshot();
+        if (! juce::isPositiveAndBelow (channelIndex, static_cast<int> (channels.size())))
+            return;
+
+        const auto& channelData = channels[static_cast<size_t> (channelIndex)];
+        model.thdN = static_cast<float> (channelData.thdN);
+
+        const auto statusColour = statusColourForThd (model.thdN);
+        thdLabel.setText (juce::String (model.thdN, 2) + "% THD+N", juce::dontSendNotification);
+        thdLabel.setColour (juce::Label::textColourId, statusColour);
+        badge.setBadge (statusTextForThd (model.thdN), statusColour);
+        vuMeter.setLevel (juce::jlimit (0.0f, 1.0f, static_cast<float> (channelData.peakLevel)));
+
+        hoverMix = juce::jlimit (0.35f, 1.0f, hoverMix + (hovered ? 0.08f : -0.08f));
+        removeButton.setAlpha (hoverMix - 0.2f);
+        repaint();
+    }
+
 private:
     void configureButton (juce::TextButton& button, const juce::String& text)
     {
@@ -297,31 +326,12 @@ private:
         button.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.75f));
         button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
         button.setClickingTogglesState (true);
-        button.setTooltip ("UI-only control. TODO: bind to APVTS mute/solo parameters.");
         button.setConnectedEdges (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
         addAndMakeVisible (button);
     }
 
-    void refreshFromModel()
-    {
-        const auto statusColour = statusColourForThd (model.thdN);
-        thdLabel.setText (juce::String (model.thdN, 2) + "% THD+N", juce::dontSendNotification);
-        thdLabel.setColour (juce::Label::textColourId, statusColour);
-        badge.setBadge (statusTextForThd (model.thdN), statusColour);
-        vuMeter.setLevel (juce::jlimit (0.0f, 1.0f, model.thdN * 0.4f + 0.25f));
-    }
-
-    void timerCallback() override
-    {
-        hoverMix = juce::jlimit (0.35f, 1.0f, hoverMix + (hovered ? 0.08f : -0.08f));
-        removeButton.setAlpha (hoverMix - 0.2f);
-
-        // TODO: Replace random placeholder updates with live metering from DSP analysis data.
-        model.thdN = juce::jlimit (0.01f, 3.2f, model.thdN + juce::Random::getSystemRandom().nextFloat() * 0.12f - 0.06f);
-        refreshFromModel();
-        repaint();
-    }
-
+    THDAnalyzerPlugin& processor;
+    int channelIndex = 0;
     UIChannelModel model;
     CanvasPlaceholder waveform;
     Badge badge;
@@ -332,6 +342,9 @@ private:
     juce::TextButton removeButton;
     bool hovered = false;
     float hoverMix = 0.35f;
+
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> muteAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> soloAttachment;
 };
 
 class THDAnalyzerPluginEditor::HeaderBar final : public juce::Component,
@@ -413,6 +426,34 @@ private:
     float pulse = 1.0f;
 };
 
+void THDAnalyzerPluginEditor::configureModeControls()
+{
+    pluginModeLabel.setText ("MODE", juce::dontSendNotification);
+    pluginModeLabel.setFont (makeMonoFont (8.0f, true));
+    pluginModeLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.7f));
+    addAndMakeVisible (pluginModeLabel);
+
+    pluginModeCombo.addItem ("Channel Strip", 1);
+    pluginModeCombo.addItem ("Master Brain", 2);
+    pluginModeCombo.setTooltip ("Bound to processor Plugin Mode parameter");
+    addAndMakeVisible (pluginModeCombo);
+
+    channelIdLabel.setText ("CHANNEL", juce::dontSendNotification);
+    channelIdLabel.setFont (makeMonoFont (8.0f, true));
+    channelIdLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.7f));
+    addAndMakeVisible (channelIdLabel);
+
+    for (int i = 0; i < 8; ++i)
+        channelIdCombo.addItem (juce::String (i + 1), i + 1);
+
+    channelIdCombo.setTooltip ("Bound to processor Channel ID parameter");
+    addAndMakeVisible (channelIdCombo);
+
+    auto& state = processor.getValueTreeState();
+    pluginModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (state, "pluginMode", pluginModeCombo);
+    channelIdAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (state, "channelId", channelIdCombo);
+}
+
 THDAnalyzerPluginEditor::THDAnalyzerPluginEditor (THDAnalyzerPlugin& p)
     : AudioProcessorEditor (&p), processor (p)
 {
@@ -420,6 +461,7 @@ THDAnalyzerPluginEditor::THDAnalyzerPluginEditor (THDAnalyzerPlugin& p)
 
     headerBar = std::make_unique<HeaderBar>();
     addAndMakeVisible (*headerBar);
+    configureModeControls();
 
     channelViewport.setScrollBarsShown (false, true);
     channelViewport.setViewedComponent (&channelViewportContent, false);
@@ -438,7 +480,7 @@ THDAnalyzerPluginEditor::THDAnalyzerPluginEditor (THDAnalyzerPlugin& p)
 
     for (const auto& channel : defaultChannels)
     {
-        auto card = std::make_unique<ChannelCard> (channel);
+        auto card = std::make_unique<ChannelCard> (processor, static_cast<int> (channelCards.size()), channel);
         channelViewportContent.addAndMakeVisible (*card);
         channelCards.push_back (std::move (card));
 
@@ -455,7 +497,6 @@ THDAnalyzerPluginEditor::THDAnalyzerPluginEditor (THDAnalyzerPlugin& p)
     addAndMakeVisible (*harmonicPlaceholder);
     addAndMakeVisible (*historyPlaceholder);
 
-    // TODO: Add APVTS attachments and processor listeners once DSP exposes dedicated UI parameters.
     startTimerHz (20);
 }
 
@@ -498,16 +539,36 @@ void THDAnalyzerPluginEditor::paint (juce::Graphics& g)
     g.setFont (makeMonoFont (8.0f));
     g.drawText ("LOCKED", masterHeader.removeFromRight (96), juce::Justification::centredLeft);
 
+    const auto channels = processor.getChannelsSnapshot();
+    const auto analysis = processor.getLastAnalysisResult();
+
+    double thdSum = 0.0;
+    float maxPeak = 0.0f;
+    for (const auto& channel : channels)
+    {
+        thdSum += channel.thd;
+        maxPeak = juce::jmax (maxPeak, static_cast<float> (channel.peakLevel));
+    }
+
+    const auto averageThd = channels.empty() ? 0.0 : thdSum / static_cast<double> (channels.size());
+
     g.setColour (juce::Colours::white.withAlpha (0.95f));
     g.setFont (makeMonoFont (8.5f));
-    g.drawFittedText ("AVG THD 0.42%  |  MASTER 0.61%  |  PEAK -2.1dB", 28, 328, getWidth() - 56, 16, juce::Justification::centredLeft, 1);
+    g.drawFittedText ("AVG THD " + juce::String (averageThd, 2) + "%  |  MASTER " + juce::String (analysis.thd, 2) + "%  |  PEAK " + juce::String (maxPeak, 2),
+                     28, 328, getWidth() - 56, 16, juce::Justification::centredLeft, 1);
     g.setColour (juce::Colours::white.withAlpha (0.85f));
-    g.drawFittedText ("FLOOR -82.0dB  |  THD+N 0.84%", 28, 344, getWidth() - 56, 16, juce::Justification::centredLeft, 1);
+    g.drawFittedText ("FLOOR " + juce::String (analysis.noiseFloor, 5) + "  |  THD+N " + juce::String (analysis.thdN, 2) + "%",
+                     28, 344, getWidth() - 56, 16, juce::Justification::centredLeft, 1);
 }
 
 void THDAnalyzerPluginEditor::resized()
 {
     headerBar->setBounds (0, 0, getWidth(), 50);
+
+    pluginModeLabel.setBounds (24, 58, 70, 16);
+    pluginModeCombo.setBounds (24, 74, 140, 24);
+    channelIdLabel.setBounds (176, 58, 70, 16);
+    channelIdCombo.setBounds (176, 74, 120, 24);
 
     channelViewport.setBounds (24, 104, getWidth() - 48, 164);
     constexpr int cardWidth = 110;
@@ -537,5 +598,13 @@ void THDAnalyzerPluginEditor::resized()
 
 void THDAnalyzerPluginEditor::timerCallback()
 {
+    for (auto& card : channelCards)
+        card->refreshFromProcessor();
+
+    const auto analysis = processor.getLastAnalysisResult();
+    masterGaugePlaceholder->setTooltip ("THD+N " + juce::String (analysis.thdN, 2) + "%");
+    harmonicPlaceholder->setTooltip ("Fundamental " + juce::String (analysis.fundamentalFrequency, 1) + " Hz");
+    historyPlaceholder->setTooltip ("Noise floor " + juce::String (analysis.noiseFloor, 5));
+
     repaint();
 }
