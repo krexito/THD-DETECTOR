@@ -80,7 +80,8 @@ juce::String statusTextForThd (float thd)
 }
 }
 
-class THDAnalyzerPluginEditor::CanvasPlaceholder final : public juce::Component
+class THDAnalyzerPluginEditor::CanvasPlaceholder final : public juce::Component,
+                                                          public juce::SettableTooltipClient
 {
 public:
     explicit CanvasPlaceholder (juce::String labelToUse)
