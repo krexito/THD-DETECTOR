@@ -20,6 +20,11 @@ THDAnalyzerPlugin::THDAnalyzerPlugin()
     : state (*this, nullptr, "THDAnalyzerParameters", createParameterLayout())
 #endif
 {
+    cacheParameterPointers();
+
+    state.addParameterListener ("pluginMode", this);
+    state.addParameterListener ("channelId", this);
+
     channels = {
         { 0, "KICK", juce::Colours::red },
         { 1, "SNARE", juce::Colours::orange },
@@ -31,10 +36,26 @@ THDAnalyzerPlugin::THDAnalyzerPlugin()
         { 7, "FX BUS", juce::Colours::pink }
     };
 
+    for (size_t i = 0; i < channels.size(); ++i)
+    {
+        state.addParameterListener (channelMutedParamId (static_cast<int> (i)), this);
+        state.addParameterListener (channelSoloedParamId (static_cast<int> (i)), this);
+    }
+
     syncCachedParametersFromState();
 }
 
-THDAnalyzerPlugin::~THDAnalyzerPlugin() = default;
+THDAnalyzerPlugin::~THDAnalyzerPlugin()
+{
+    state.removeParameterListener ("pluginMode", this);
+    state.removeParameterListener ("channelId", this);
+
+    for (size_t i = 0; i < channels.size(); ++i)
+    {
+        state.removeParameterListener (channelMutedParamId (static_cast<int> (i)), this);
+        state.removeParameterListener (channelSoloedParamId (static_cast<int> (i)), this);
+    }
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout THDAnalyzerPlugin::createParameterLayout()
 {
@@ -79,21 +100,38 @@ juce::String THDAnalyzerPlugin::channelSoloedParamId (int channelIndex)
     return "channelSoloed" + juce::String (channelIndex);
 }
 
+void THDAnalyzerPlugin::cacheParameterPointers()
+{
+    pluginModeParamValue = state.getRawParameterValue ("pluginMode");
+    channelIdParamValue = state.getRawParameterValue ("channelId");
+
+    for (size_t i = 0; i < channelMutedParamValues.size(); ++i)
+    {
+        channelMutedParamValues[i] = state.getRawParameterValue (channelMutedParamId (static_cast<int> (i)));
+        channelSoloedParamValues[i] = state.getRawParameterValue (channelSoloedParamId (static_cast<int> (i)));
+    }
+}
+
+void THDAnalyzerPlugin::parameterChanged (const juce::String&, float)
+{
+    syncCachedParametersFromState();
+}
+
 void THDAnalyzerPlugin::syncCachedParametersFromState()
 {
-    if (const auto* modeParam = state.getRawParameterValue ("pluginMode"))
-        cachedPluginMode.store (juce::jlimit (0, 1, static_cast<int> (modeParam->load())), std::memory_order_release);
+    if (pluginModeParamValue != nullptr)
+        cachedPluginMode.store (juce::jlimit (0, 1, static_cast<int> (pluginModeParamValue->load())), std::memory_order_release);
 
-    if (const auto* channelParam = state.getRawParameterValue ("channelId"))
-        cachedChannelId.store (juce::jlimit (0, 7, static_cast<int> (channelParam->load())), std::memory_order_release);
+    if (channelIdParamValue != nullptr)
+        cachedChannelId.store (juce::jlimit (0, 7, static_cast<int> (channelIdParamValue->load())), std::memory_order_release);
 
     for (size_t i = 0; i < channels.size(); ++i)
     {
-        if (const auto* mutedParam = state.getRawParameterValue (channelMutedParamId (static_cast<int> (i))))
-            channels[i].muted = mutedParam->load() >= 0.5f;
+        if (channelMutedParamValues[i] != nullptr)
+            channels[i].muted = channelMutedParamValues[i]->load() >= 0.5f;
 
-        if (const auto* soloedParam = state.getRawParameterValue (channelSoloedParamId (static_cast<int> (i))))
-            channels[i].soloed = soloedParam->load() >= 0.5f;
+        if (channelSoloedParamValues[i] != nullptr)
+            channels[i].soloed = channelSoloedParamValues[i]->load() >= 0.5f;
     }
 }
 
@@ -292,8 +330,6 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         lastAnalysis = fftAnalyzer.analyze (orderedSamplesScratch.data(), FFTAnalyzer::fftSize, static_cast<float> (getSampleRate()));
     }
 
-    syncCachedParametersFromState();
-
     if (getPluginMode() == PluginMode::ChannelStrip)
     {
         sendTHDDataToMaster (lastAnalysis, peakLevel);
@@ -391,6 +427,37 @@ void THDAnalyzerPlugin::changeProgramName (int, const juce::String&)
 {
 }
 
+bool THDAnalyzerPlugin::restoreLegacyStateIfNeeded (const juce::XmlElement& xml)
+{
+    if (! xml.hasTagName ("THDAnalyzerSettings"))
+        return false;
+
+    const auto modeText = xml.getStringAttribute ("pluginMode", {}).trim().toLowerCase();
+    if (modeText == "masterbrain")
+        setPluginMode (PluginMode::MasterBrain);
+    else if (modeText == "channelstrip")
+        setPluginMode (PluginMode::ChannelStrip);
+
+    const auto legacyChannelId = juce::jlimit (0, 7, xml.getIntAttribute ("channelId", getChannelId()));
+    setChannelId (legacyChannelId);
+
+    forEachXmlChildElementWithTagName (xml, channelXml, "channel")
+    {
+        const int channelIndex = channelXml->getIntAttribute ("id", -1);
+        if (! juce::isPositiveAndBelow (channelIndex, static_cast<int> (channels.size())))
+            continue;
+
+        if (auto* mutedParam = state.getParameter (channelMutedParamId (channelIndex)))
+            mutedParam->setValueNotifyingHost (channelXml->getBoolAttribute ("muted", false) ? 1.0f : 0.0f);
+
+        if (auto* soloedParam = state.getParameter (channelSoloedParamId (channelIndex)))
+            soloedParam->setValueNotifyingHost (channelXml->getBoolAttribute ("soloed", false) ? 1.0f : 0.0f);
+    }
+
+    syncCachedParametersFromState();
+    return true;
+}
+
 void THDAnalyzerPlugin::getStateInformation (juce::MemoryBlock& destData)
 {
     auto stateCopy = state.copyState();
@@ -403,6 +470,9 @@ void THDAnalyzerPlugin::setStateInformation (const void* data, int sizeInBytes)
     const std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
 
     if (xml == nullptr)
+        return;
+
+    if (restoreLegacyStateIfNeeded (*xml))
         return;
 
     const auto restoredState = juce::ValueTree::fromXml (*xml);

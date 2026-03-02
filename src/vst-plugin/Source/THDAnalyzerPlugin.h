@@ -254,7 +254,8 @@ struct THDDataMessage
     }
 };
 
-class THDAnalyzerPlugin : public juce::AudioProcessor
+class THDAnalyzerPlugin : public juce::AudioProcessor,
+                          private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     THDAnalyzerPlugin();
@@ -304,7 +305,13 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void cacheParameterPointers();
     void syncCachedParametersFromState();
+    static juce::String channelMutedParamId (int channelIndex);
+    static juce::String channelSoloedParamId (int channelIndex);
+    bool restoreLegacyStateIfNeeded (const juce::XmlElement& xml);
+
+    void parameterChanged (const juce::String& parameterID, float newValue) override;
 
     void ensureScratchBuffers (int numSamples);
     void pushSamplesToAnalysisFifo (const std::vector<float>& monoBuffer);
@@ -313,6 +320,10 @@ private:
     FFTAnalyzer::AnalysisResult lastAnalysis;
 
     juce::AudioProcessorValueTreeState state;
+    std::atomic<float>* pluginModeParamValue = nullptr;
+    std::atomic<float>* channelIdParamValue = nullptr;
+    std::array<std::atomic<float>*, 8> channelMutedParamValues {};
+    std::array<std::atomic<float>*, 8> channelSoloedParamValues {};
     std::atomic<int> cachedPluginMode { static_cast<int> (PluginMode::ChannelStrip) };
     std::atomic<int> cachedChannelId { 0 };
     juce::MidiBuffer midiOutputBuffer;
