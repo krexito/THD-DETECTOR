@@ -1,4 +1,6 @@
 #include "THDAnalyzerPluginEditor.h"
+#include <functional>
+#include <algorithm>
 
 namespace
 {
@@ -38,6 +40,7 @@ const juce::Colour ColorPalette::accentBlue = juce::Colour::fromString ("ff60a5f
 
 struct UIChannelModel
 {
+    int channelId = 0;
     juce::String name;
     juce::Colour color;
     float thdN = 0.0f;
@@ -386,8 +389,8 @@ private:
 class THDAnalyzerPluginEditor::ChannelCard final : public juce::Component
 {
 public:
-    ChannelCard (THDAnalyzerPlugin& processorToUse, int channelIndexToUse, UIChannelModel channel)
-        : processor (processorToUse), channelIndex (channelIndexToUse), model (std::move (channel)), removeButton ("x")
+    ChannelCard (THDAnalyzerPlugin& processorToUse, UIChannelModel channel, std::function<void(int)> onRemoveToUse)
+        : processor (processorToUse), model (std::move (channel)), onRemove (std::move (onRemoveToUse)), removeButton ("x")
     {
         addAndMakeVisible (waveform);
         addAndMakeVisible (badge);
@@ -402,19 +405,32 @@ public:
 
         removeButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
         removeButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.45f));
-        removeButton.setTooltip ("Remove channel (UI placeholder)");
+        removeButton.setTooltip ("Remove channel");
         addAndMakeVisible (removeButton);
+        removeButton.onClick = [this]
+        {
+            if (onRemove != nullptr)
+                onRemove (model.channelId);
+        };
 
-        auto& state = processor.getValueTreeState();
-        muteAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-            state,
-            "channelMuted" + juce::String (channelIndex),
-            muteButton);
+        if (juce::isPositiveAndBelow (model.channelId, 8))
+        {
+            auto& state = processor.getValueTreeState();
+            muteAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+                state,
+                THDAnalyzerPlugin::channelMutedParamId (model.channelId),
+                muteButton);
 
-        soloAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-            state,
-            "channelSoloed" + juce::String (channelIndex),
-            soloButton);
+            soloAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+                state,
+                THDAnalyzerPlugin::channelSoloedParamId (model.channelId),
+                soloButton);
+        }
+        else
+        {
+            muteButton.setEnabled (false);
+            soloButton.setEnabled (false);
+        }
 
         setInterceptsMouseClicks (true, true);
         refreshFromProcessor();
@@ -465,10 +481,15 @@ public:
     void refreshFromProcessor()
     {
         const auto channels = processor.getChannelsSnapshot();
-        if (! juce::isPositiveAndBelow (channelIndex, static_cast<int> (channels.size())))
+        const auto it = std::find_if (channels.begin(), channels.end(), [this] (const ChannelData& c)
+        {
+            return c.channelId == model.channelId;
+        });
+
+        if (it == channels.end())
             return;
 
-        const auto& channelData = channels[static_cast<size_t> (channelIndex)];
+        const auto& channelData = *it;
         model.thdN = static_cast<float> (channelData.thdN);
 
         const auto statusColour = statusColourForThd (model.thdN);
@@ -501,8 +522,8 @@ private:
     }
 
     THDAnalyzerPlugin& processor;
-    int channelIndex = 0;
     UIChannelModel model;
+    std::function<void(int)> onRemove;
     WaveformMiniDisplay waveform;
     Badge badge;
     VUMeter vuMeter;
@@ -521,13 +542,19 @@ class THDAnalyzerPluginEditor::HeaderBar final : public juce::Component,
                                                   private juce::Timer
 {
 public:
-    HeaderBar()
+    explicit HeaderBar (std::function<void()> onAddChannelToUse)
+        : onAddChannel (std::move (onAddChannelToUse))
     {
         addButton.setButtonText ("+ ADD CHANNEL");
         addButton.setColour (juce::TextButton::buttonColourId, ColorPalette::accentBlue.withAlpha (0.9f));
         addButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
-        addButton.setTooltip ("UI-only action. TODO: wire to real channel creation/routing.");
+        addButton.setTooltip ("Add channel analyzer ID");
         addAndMakeVisible (addButton);
+        addButton.onClick = [this]
+        {
+            if (onAddChannel != nullptr)
+                onAddChannel();
+        };
         startTimerHz (24);
     }
 
@@ -592,6 +619,7 @@ private:
     }
 
     juce::TextButton addButton;
+    std::function<void()> onAddChannel;
     float phase = 0.0f;
     float pulse = 1.0f;
 };
@@ -613,8 +641,8 @@ void THDAnalyzerPluginEditor::configureModeControls()
     channelIdLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.7f));
     addAndMakeVisible (channelIdLabel);
 
-    for (int i = 0; i < 8; ++i)
-        channelIdCombo.addItem (juce::String (i + 1), i + 1);
+    for (int i = 0; i < THDAnalyzerPlugin::maxDynamicChannels; ++i)
+        channelIdCombo.addItem ("CH " + juce::String (i + 1), i + 1);
 
     channelIdCombo.setTooltip ("Bound to processor Channel ID parameter");
     addAndMakeVisible (channelIdCombo);
@@ -624,10 +652,48 @@ void THDAnalyzerPluginEditor::configureModeControls()
     channelIdAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (state, "channelId", channelIdCombo);
 }
 
+
+void THDAnalyzerPluginEditor::rebuildChannelCards()
+{
+    channelViewportContent.removeAllChildren();
+    channelCards.clear();
+    progressRows.clear();
+
+    const auto channels = processor.getChannelsSnapshot();
+    for (const auto& channel : channels)
+    {
+        UIChannelModel uiModel;
+        uiModel.channelId = channel.channelId;
+        uiModel.name = channel.channelName.isNotEmpty() ? channel.channelName : ("CH " + juce::String (channel.channelId + 1));
+        uiModel.color = channel.channelColor;
+        uiModel.thdN = static_cast<float> (channel.thdN);
+
+        auto card = std::make_unique<ChannelCard> (processor, uiModel, [this] (int id)
+        {
+            processor.removeChannel (id);
+            rebuildChannelCards();
+            resized();
+        });
+
+        channelViewportContent.addAndMakeVisible (*card);
+        channelCards.push_back (std::move (card));
+
+        auto row = std::make_unique<ProgressBarRow> (uiModel.name, uiModel.color, juce::jlimit (0.15f, 0.95f, uiModel.thdN / 1.6f));
+        addAndMakeVisible (*row);
+        progressRows.push_back (std::move (row));
+    }
+
+    resized();
+}
+
 THDAnalyzerPluginEditor::THDAnalyzerPluginEditor (THDAnalyzerPlugin& p)
     : AudioProcessorEditor (&p), processor (p)
 {
-    headerBar = std::make_unique<HeaderBar>();
+    headerBar = std::make_unique<HeaderBar> ([this]
+    {
+        processor.ensureChannelExists (processor.getChannelId());
+        rebuildChannelCards();
+    });
     addAndMakeVisible (*headerBar);
     configureModeControls();
 
@@ -635,29 +701,7 @@ THDAnalyzerPluginEditor::THDAnalyzerPluginEditor (THDAnalyzerPlugin& p)
     channelViewport.setViewedComponent (&channelViewportContent, false);
     addAndMakeVisible (channelViewport);
 
-    const std::array<UIChannelModel, 8> defaultChannels {{
-        { "KICK", juce::Colour::fromString ("fff97316"), 0.42f },
-        { "SNARE", juce::Colour::fromString ("ff60a5fa"), 0.38f },
-        { "BASS", juce::Colour::fromString ("ffa78bfa"), 0.64f },
-        { "GTR L", juce::Colour::fromString ("ff34d399"), 0.29f },
-        { "GTR R", juce::Colour::fromString ("ff2dd4bf"), 0.34f },
-        { "KEYS", juce::Colour::fromString ("fffbbf24"), 0.57f },
-        { "VOX", juce::Colour::fromString ("fff472b6"), 1.21f },
-        { "FX BUS", juce::Colour::fromString ("ff94a3b8"), 0.81f }
-    }};
-
-    for (size_t i = 0; i < defaultChannels.size(); ++i)
-    {
-        const auto& channel = defaultChannels[i];
-        auto card = std::make_unique<ChannelCard> (processor, static_cast<int> (i), channel);
-
-        channelViewportContent.addAndMakeVisible (*card);
-        channelCards.push_back (std::move (card));
-
-        auto row = std::make_unique<ProgressBarRow> (channel.name, channel.color, juce::jlimit (0.15f, 0.95f, channel.thdN / 1.6f));
-        addAndMakeVisible (*row);
-        progressRows.push_back (std::move (row));
-    }
+    rebuildChannelCards();
 
     masterGaugeDisplay = std::make_unique<MasterGaugeDisplay>();
     harmonicSpectrumDisplay = std::make_unique<HarmonicSpectrumDisplay>();
@@ -781,6 +825,10 @@ void THDAnalyzerPluginEditor::timerCallback()
 
     if (masterGaugeDisplay == nullptr || harmonicSpectrumDisplay == nullptr || historyTimelineDisplay == nullptr)
         return;
+
+    const auto snapshotChannels = processor.getChannelsSnapshot();
+    if (channelCards.size() != snapshotChannels.size())
+        rebuildChannelCards();
 
     for (auto& card : channelCards)
         card->refreshFromProcessor();

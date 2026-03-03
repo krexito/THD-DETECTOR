@@ -171,3 +171,4 @@ export async function GET() {
 
 | Session 17 | VST GUI crash fix pass — clamped animated header pulse alpha into [0,1] before `withAlpha()` to avoid JUCE debug assertion breaks in host paint loop. |
 | Session 18 | VST editor UX pass — replaced temporary canvas placeholders (waveform/gauge/harmonic/history) with live-rendered analyzer widgets driven by processor analysis snapshots. |
+| Session 19 | Dynamic channel-topology pass — converted VST channel registry from fixed 8 pre-seeded channels to runtime-discovered channels (created on incoming SysEx), added stale-channel pruning, expanded Channel ID selection to 64 IDs, wired header add/remove channel buttons to real processor actions, and refreshed editor cards from live channel snapshots so Channel Strip ↔ Master Brain behavior matches dynamic DAW routing. |
