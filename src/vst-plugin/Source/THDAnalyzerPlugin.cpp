@@ -215,26 +215,6 @@ std::vector<ChannelData> THDAnalyzerPlugin::getChannelsSnapshot() const
     return channels;
 }
 
-void THDAnalyzerPlugin::sendTHDDataToMaster (const FFTAnalyzer::AnalysisResult& analysis, float peakLevel)
-{
-    if (getPluginMode() != PluginMode::ChannelStrip)
-        return;
-
-    THDDataMessage msg;
-    msg.channelId = getChannelId();
-    msg.thd = analysis.thd;
-    msg.thdN = analysis.thdN;
-    msg.level = analysis.level;
-    msg.peakLevel = peakLevel;
-
-    for (size_t i = 0; i < msg.harmonics.size(); ++i)
-        msg.harmonics[i] = i < analysis.harmonics.size() ? analysis.harmonics[i] : 0.0f;
-
-    juce::MidiMessage midiMsg;
-    msg.toMidiBytes (midiMsg);
-    midiOutputBuffer.addEvent (midiMsg, 0);
-}
-
 void THDAnalyzerPlugin::pushAnalysisSnapshotForEditor (const FFTAnalyzer::AnalysisResult& analysis)
 {
     int start1 = 0;
@@ -373,41 +353,6 @@ void THDAnalyzerPlugin::ingestSharedChannelData()
     }
 }
 
-void THDAnalyzerPlugin::receiveTHDData (const juce::MidiMessage& midi)
-{
-    if (getPluginMode() != PluginMode::MasterBrain)
-        return;
-
-    THDDataMessage msg;
-    if (! msg.fromMidiBytes (midi))
-        return;
-
-    if (msg.channelId < 0 || msg.channelId >= maxDynamicChannels)
-        return;
-
-    ensureChannelExists (msg.channelId);
-
-    const juce::SpinLock::ScopedLockType lock (analysisDataLock);
-    auto it = std::find_if (channels.begin(), channels.end(), [&msg] (const ChannelData& c)
-    {
-        return c.channelId == msg.channelId;
-    });
-
-    if (it == channels.end())
-        return;
-
-    auto& channel = *it;
-    channel.thd = msg.thd;
-    channel.thdN = msg.thdN;
-    channel.level = msg.level;
-    channel.peakLevel = msg.peakLevel;
-    channel.active = true;
-    channel.lastUpdateSeconds = internalClockSeconds;
-
-    for (size_t i = 0; i < channel.harmonics.size() && i < msg.harmonics.size(); ++i)
-        channel.harmonics[i] = msg.harmonics[i];
-}
-
 void THDAnalyzerPlugin::prepareToPlay (double sampleRate, int)
 {
     snapshotIntervalSamples = juce::jmax (1, static_cast<int> (sampleRate / static_cast<double> (targetSnapshotRateHz)));
@@ -432,7 +377,6 @@ void THDAnalyzerPlugin::reset()
     analysisSamplesSinceLastRun = 0;
     samplesSinceLastSnapshotPush = 0;
     internalClockSeconds = 0.0;
-    midiOutputBuffer.clear();
     consumedSharedSequences.fill (0);
     analysisSnapshotFifo.reset();
     lastPublishedThd = -1.0f;
@@ -458,7 +402,6 @@ void THDAnalyzerPlugin::reset()
 void THDAnalyzerPlugin::releaseResources()
 {
     editorDataReady.store (false, std::memory_order_release);
-    midiOutputBuffer.clear();
 }
 
 bool THDAnalyzerPlugin::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -606,18 +549,10 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
 
     if (pluginMode == PluginMode::ChannelStrip)
     {
-        sendTHDDataToMaster (realtimeAnalysisCache, peakLevel);
         publishSharedChannelData (realtimeAnalysisCache, peakLevel);
-
-        midiMessages.clear();
-        midiMessages.addEvents (midiOutputBuffer, 0, numSamples, 0);
-        midiOutputBuffer.clear();
     }
     else if (pluginMode == PluginMode::MasterBrain)
     {
-        for (const auto metadata : midiMessages)
-            receiveTHDData (metadata.getMessage());
-
         ingestSharedChannelData();
         pruneStaleChannels();
         midiMessages.clear();
