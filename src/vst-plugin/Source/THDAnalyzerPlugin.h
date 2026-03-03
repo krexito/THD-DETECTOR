@@ -12,6 +12,7 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
+#include <juce_core/juce_core.h>
 #include <array>
 #include <vector>
 #include <cmath>
@@ -279,6 +280,7 @@ public:
     int getChannelId() const;
     bool isEditorDataReady() const noexcept;
     FFTAnalyzer::AnalysisResult getLastAnalysisResult() const;
+    bool popLatestAnalysisResultForEditor (FFTAnalyzer::AnalysisResult& destination);
     std::vector<ChannelData> getChannelsSnapshot() const;
 
     void sendTHDDataToMaster (const FFTAnalyzer::AnalysisResult& analysis, float peakLevel);
@@ -357,6 +359,24 @@ private:
     double internalClockSeconds = 0.0;
     static constexpr double channelStaleTimeoutSeconds = 3.0;
     mutable juce::SpinLock analysisDataLock;
+
+    struct AnalysisSnapshot
+    {
+        FFTAnalyzer::AnalysisResult analysis;
+    };
+
+    static constexpr int analysisSnapshotCapacity = 32;
+    juce::AbstractFifo analysisSnapshotFifo { analysisSnapshotCapacity };
+    std::array<AnalysisSnapshot, analysisSnapshotCapacity> analysisSnapshotBuffer {};
+
+    float lastPublishedThd = -1.0f;
+    float lastPublishedThdN = -1.0f;
+    double lastOutboundPublishMs = 0.0;
+    static constexpr double outboundPublishIntervalMs = 33.0;
+    static constexpr float outboundPublishDeltaThreshold = 0.025f;
+
+    void pushAnalysisSnapshotForEditor (const FFTAnalyzer::AnalysisResult& analysis);
+    void updateOutboundParameters (const FFTAnalyzer::AnalysisResult& analysis);
 
     static juce::Colour colorForChannelId (int channelId);
     static juce::String defaultChannelNameForId (int channelId);
