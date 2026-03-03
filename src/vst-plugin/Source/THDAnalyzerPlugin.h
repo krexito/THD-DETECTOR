@@ -45,7 +45,7 @@ public:
         float thd = 0.0f;
         float thdN = 0.0f;
         float level = 0.0f;
-        std::vector<float> harmonics = std::vector<float> (7, 0.0f); // H2-H8
+        std::array<float, 7> harmonics {}; // H2-H8
         float noiseFloor = 0.0f;
     };
 
@@ -331,6 +331,7 @@ private:
 
     FFTAnalyzer fftAnalyzer;
     FFTAnalyzer::AnalysisResult lastAnalysis;
+    FFTAnalyzer::AnalysisResult realtimeAnalysisCache;
 
     juce::AudioProcessorValueTreeState state;
     std::atomic<float>* pluginModeParamValue = nullptr;
