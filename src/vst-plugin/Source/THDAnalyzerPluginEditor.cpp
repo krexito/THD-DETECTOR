@@ -429,16 +429,33 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto bounds = getLocalBounds().toFloat();
-        g.setColour (ColorPalette::surfaceA);
+        g.setColour (ColorPalette::surfaceA.withAlpha (0.96f));
         g.fillRoundedRectangle (bounds, 10.0f);
 
-        auto header = bounds.removeFromTop (18.0f);
-        g.setColour (model.color.withAlpha (0.1f));
-        g.fillRoundedRectangle (header, 10.0f);
+        auto topGlow = bounds.removeFromTop (2.0f);
+        g.setGradientFill (juce::ColourGradient (juce::Colours::transparentBlack,
+                                                 topGlow.getX(), topGlow.getCentreY(),
+                                                 model.color.withAlpha (0.7f),
+                                                 topGlow.getCentreX(), topGlow.getCentreY(),
+                                                 true));
+        g.fillRoundedRectangle (topGlow, 1.0f);
 
-        g.setColour (model.color.withAlpha (0.6f));
+        auto header = bounds.removeFromTop (20.0f);
+        g.setColour (model.color.withAlpha (0.12f));
+        g.fillRoundedRectangle (header, 8.0f);
+
+        g.setColour (model.color.withAlpha (0.9f));
         g.setFont (makeMonoFont (8.0f, true));
-        g.drawText (model.name, header.toNearestInt(), juce::Justification::centred);
+        g.drawText (model.name, header.toNearestInt().reduced (6, 0), juce::Justification::centredLeft);
+
+        auto idTag = header.removeFromRight (22.0f).reduced (2.0f, 2.0f);
+        g.setColour (model.color.withAlpha (0.18f));
+        g.fillRoundedRectangle (idTag, 4.0f);
+        g.setColour (model.color.withAlpha (0.35f));
+        g.drawRoundedRectangle (idTag.reduced (0.5f), 4.0f, 1.0f);
+        g.setColour (model.color.withAlpha (0.95f));
+        g.setFont (makeMonoFont (7.0f, true));
+        g.drawText (juce::String (model.channelId + 1).paddedLeft ('0', 2), idTag.toNearestInt(), juce::Justification::centred);
 
         g.setColour (ColorPalette::borderA.withAlpha (hoverMix));
         g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 10.0f, 1.0f);
@@ -447,18 +464,18 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced (7);
-        area.removeFromTop (14);
+        area.removeFromTop (18);
 
-        waveform.setBounds (area.removeFromTop (56));
-        area.removeFromTop (5);
-        thdLabel.setBounds (area.removeFromTop (16));
-        badge.setBounds (area.removeFromTop (16).withTrimmedLeft (8).withTrimmedRight (8));
+        waveform.setBounds (area.removeFromTop (50));
         area.removeFromTop (4);
+        thdLabel.setBounds (area.removeFromTop (15));
+        badge.setBounds (area.removeFromTop (14).withTrimmedLeft (10).withTrimmedRight (10));
+        area.removeFromTop (3);
 
         vuMeter.setBounds (area.removeFromTop (18));
-        area.removeFromTop (4);
+        area.removeFromTop (3);
 
-        auto buttonRow = area.removeFromTop (20);
+        auto buttonRow = area.removeFromTop (18);
         muteButton.setBounds (buttonRow.removeFromLeft (buttonRow.getWidth() / 2).reduced (1));
         soloButton.setBounds (buttonRow.reduced (1));
 
@@ -538,32 +555,44 @@ public:
         g.setGradientFill (grad);
         g.fillRect (bounds);
 
-        g.setColour (juce::Colours::black.withAlpha (0.5f));
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
         g.fillRect (juce::Rectangle<float> (0.0f, bounds.getBottom() - 4.0f, bounds.getWidth(), 4.0f));
-        g.setColour (ColorPalette::borderB);
+        g.setColour (ColorPalette::borderB.withAlpha (0.95f));
         g.drawLine (0.0f, bounds.getBottom() - 0.5f, bounds.getWidth(), bounds.getBottom() - 0.5f, 1.0f);
 
         drawWindowDots (g);
 
+        g.setColour (juce::Colours::white.withAlpha (0.12f));
+        g.fillRect (66.0f, 14.0f, 1.0f, 22.0f);
+
+        auto title = juce::Rectangle<int> (78, 10, getWidth() - 320, 28);
         g.setColour (juce::Colours::white.withAlpha (0.92f));
         g.setFont (makeMonoFont (10.0f, true));
-        g.drawText ("THD ANALYZER", getLocalBounds().withTrimmedTop (4), juce::Justification::centredTop);
+        g.drawText ("THD ANALYZER", title.removeFromLeft (116), juce::Justification::centredLeft);
 
-        g.setColour (juce::Colours::white.withAlpha (0.65f));
+        g.setColour (ColorPalette::mediumHigh.withAlpha (0.9f));
+        g.drawText ("///", title.removeFromLeft (26), juce::Justification::centredLeft);
+
+        g.setColour (juce::Colours::white.withAlpha (0.58f));
         g.setFont (makeMonoFont (8.0f));
-        g.drawText ("v2.0 -- MEASUREMENT EDITION", getLocalBounds().withTrimmedTop (18), juce::Justification::centredTop);
+        g.drawText ("v2.0 -- MEASUREMENT EDITION", title, juce::Justification::centredLeft);
 
-        auto statusArea = juce::Rectangle<int> (getWidth() - 162, 13, 144, 24);
-        g.setColour (juce::Colours::white.withAlpha (0.75f));
-        g.setFont (makeMonoFont (8.0f, true));
-        g.drawText ("MEASURING", statusArea.withTrimmedLeft (18), juce::Justification::centredLeft);
+        auto statusArea = juce::Rectangle<float> (static_cast<float> (getWidth() - 176), 10.0f, 158.0f, 28.0f);
+        g.setColour (ColorPalette::surfaceB.withAlpha (0.95f));
+        g.fillRoundedRectangle (statusArea, 6.0f);
+        g.setColour (ColorPalette::borderA.withAlpha (0.9f));
+        g.drawRoundedRectangle (statusArea.reduced (0.5f), 6.0f, 1.0f);
 
-        const auto dotBounds = juce::Rectangle<float> (static_cast<float> (statusArea.getX() + 3),
-                                                       static_cast<float> (statusArea.getY() + 8),
-                                                       8.0f,
-                                                       8.0f);
-        g.setColour (ColorPalette::clean.withAlpha (0.9f));
+        const auto dotBounds = juce::Rectangle<float> (statusArea.getX() + 10.0f,
+                                                       statusArea.getCentreY() - 3.0f,
+                                                       6.0f,
+                                                       6.0f);
+        g.setColour (ColorPalette::clean.withAlpha (0.95f));
         g.fillEllipse (dotBounds);
+
+        g.setColour (juce::Colours::white.withAlpha (0.74f));
+        g.setFont (makeMonoFont (8.0f, true));
+        g.drawText ("MEASURING", statusArea.toNearestInt().withTrimmedLeft (24), juce::Justification::centredLeft);
     }
 
 private:
@@ -594,24 +623,46 @@ void THDAnalyzerPluginEditor::configureModeControls()
     pluginModeCombo.addItem ("Channel Strip", 1);
     pluginModeCombo.addItem ("Master Brain", 2);
     pluginModeCombo.setTooltip ("Bound to processor Plugin Mode parameter");
+    pluginModeCombo.setColour (juce::ComboBox::backgroundColourId, ColorPalette::surfaceA.brighter (0.35f));
+    pluginModeCombo.setColour (juce::ComboBox::outlineColourId, ColorPalette::borderA.brighter (0.2f));
+    pluginModeCombo.setColour (juce::ComboBox::textColourId, juce::Colours::white.withAlpha (0.92f));
+    pluginModeCombo.onChange = [this]
+    {
+        updateControlVisibility();
+    };
     addAndMakeVisible (pluginModeCombo);
 
-    channelIdLabel.setText ("CHANNEL", juce::dontSendNotification);
-    channelIdLabel.setFont (makeMonoFont (8.0f, true));
-    channelIdLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.7f));
-    addAndMakeVisible (channelIdLabel);
+    displayModeLabel.setText ("DISPLAY", juce::dontSendNotification);
+    displayModeLabel.setFont (makeMonoFont (8.0f, true));
+    displayModeLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.7f));
+    addAndMakeVisible (displayModeLabel);
 
-    for (int i = 0; i < THDAnalyzerPlugin::maxDynamicChannels; ++i)
-        channelIdCombo.addItem ("CH " + juce::String (i + 1), i + 1);
-
-    channelIdCombo.setTooltip ("Bound to processor Channel ID parameter");
-    addAndMakeVisible (channelIdCombo);
+    displayModeCombo.addItem ("Fast", static_cast<int> (DisplaySpeed::fast));
+    displayModeCombo.addItem ("Legible", static_cast<int> (DisplaySpeed::legible));
+    displayModeCombo.setSelectedId (static_cast<int> (DisplaySpeed::legible), juce::dontSendNotification);
+    displayModeCombo.setTooltip ("Display response speed for metrics and harmonics");
+    displayModeCombo.setColour (juce::ComboBox::backgroundColourId, ColorPalette::surfaceA.brighter (0.35f));
+    displayModeCombo.setColour (juce::ComboBox::outlineColourId, ColorPalette::borderA.brighter (0.2f));
+    displayModeCombo.setColour (juce::ComboBox::textColourId, juce::Colours::white.withAlpha (0.92f));
+    displayModeCombo.onChange = [this]
+    {
+        const auto selected = displayModeCombo.getSelectedId();
+        displaySpeed = selected == static_cast<int> (DisplaySpeed::fast) ? DisplaySpeed::fast : DisplaySpeed::legible;
+    };
+    addAndMakeVisible (displayModeCombo);
 
     auto& state = processor.getValueTreeState();
     pluginModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (state, "pluginMode", pluginModeCombo);
-    channelIdAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (state, "channelId", channelIdCombo);
+
+    updateControlVisibility();
 }
 
+void THDAnalyzerPluginEditor::updateControlVisibility()
+{
+    const auto isMasterMode = pluginModeCombo.getSelectedId() == 2;
+    displayModeLabel.setVisible (isMasterMode);
+    displayModeCombo.setVisible (isMasterMode);
+}
 
 void THDAnalyzerPluginEditor::rebuildChannelCards()
 {
@@ -679,56 +730,91 @@ void THDAnalyzerPluginEditor::paint (juce::Graphics& g)
     g.setGradientFill (background);
     g.fillRect (getLocalBounds());
 
+    const auto channels = processor.getChannelsSnapshot();
+
     auto channelSection = juce::Rectangle<int> (16, 74, getWidth() - 32, 208);
-    g.setColour (ColorPalette::surfaceC.withAlpha (0.85f));
+    g.setColour (ColorPalette::surfaceC.withAlpha (0.88f));
     g.fillRoundedRectangle (channelSection.toFloat(), 10.0f);
-    g.setColour (ColorPalette::borderA);
+    g.setColour (ColorPalette::borderA.withAlpha (0.95f));
     g.drawRoundedRectangle (channelSection.toFloat(), 10.0f, 1.0f);
 
+    auto channelHeader = channelSection.removeFromTop (24).reduced (12, 0);
     g.setColour (juce::Colours::white.withAlpha (0.75f));
     g.setFont (makeMonoFont (9.0f, true));
-    g.drawText ("AUTO-DETECTED CHANNEL ANALYZERS", channelSection.removeFromTop (24).reduced (12, 0), juce::Justification::centredLeft);
+    g.drawText ("CHANNEL ANALYZER PLUGINS", channelHeader.removeFromLeft (340), juce::Justification::centredLeft);
+    g.setColour (juce::Colours::white.withAlpha (0.45f));
+    g.setFont (makeMonoFont (8.0f));
+    g.drawText (juce::String (channels.size()) + " channels active", channelHeader, juce::Justification::centredRight);
 
     auto masterArea = juce::Rectangle<int> (16, 294, getWidth() - 32, getHeight() - 310);
-    g.setColour (ColorPalette::surfaceA.withAlpha (0.9f));
+    g.setColour (ColorPalette::surfaceA.withAlpha (0.92f));
     g.fillRoundedRectangle (masterArea.toFloat(), 14.0f);
-    g.setColour (ColorPalette::borderC);
+    g.setColour (ColorPalette::borderC.withAlpha (0.95f));
     g.drawRoundedRectangle (masterArea.toFloat().reduced (0.5f), 14.0f, 1.2f);
 
     g.setColour (juce::Colours::black.withAlpha (0.36f));
     g.drawRoundedRectangle (masterArea.toFloat().expanded (1.0f), 14.0f, 3.0f);
 
-    auto masterHeader = masterArea.removeFromTop (30);
-    g.setColour (juce::Colours::white.withAlpha (0.85f));
-    g.setFont (makeMonoFont (9.0f, true));
-    g.drawText ("MASTER BRAIN", masterHeader.reduced (12, 0), juce::Justification::centredLeft);
+    auto masterHeader = masterArea.removeFromTop (56);
+    juce::ColourGradient masterHeaderGrad (ColorPalette::surfaceA.brighter (0.15f), static_cast<float> (masterHeader.getX()), static_cast<float> (masterHeader.getY()),
+                                           ColorPalette::surfaceC, static_cast<float> (masterHeader.getX()), static_cast<float> (masterHeader.getBottom()), false);
+    g.setGradientFill (masterHeaderGrad);
+    g.fillRoundedRectangle (masterHeader.toFloat(), 12.0f);
 
-    g.setColour (ColorPalette::clean.withAlpha (0.9f));
-    g.fillEllipse (masterHeader.getRight() - 128.0f, static_cast<float> (masterHeader.getY() + 10), 8.0f, 8.0f);
-    g.setColour (juce::Colours::white.withAlpha (0.7f));
+    auto leftHeader = masterHeader.reduced (12, 8);
+    auto rightHeader = leftHeader.removeFromRight (160);
+
+    auto masterTitle = leftHeader.removeFromTop (18);
+    g.setColour (ColorPalette::low.withAlpha (0.9f));
+    g.fillEllipse (static_cast<float> (masterTitle.getX()), static_cast<float> (masterTitle.getY() + 4), 7.0f, 7.0f);
+    g.setColour (juce::Colours::white.withAlpha (0.9f));
+    g.setFont (makeMonoFont (10.0f, true));
+    g.drawText ("THD MASTER ANALYZER", masterTitle.withTrimmedLeft (14), juce::Justification::centredLeft);
+
+    g.setColour (juce::Colours::white.withAlpha (0.68f));
     g.setFont (makeMonoFont (8.0f));
-    g.drawText ("LOCKED", masterHeader.removeFromRight (96), juce::Justification::centredLeft);
+    g.drawText ("AVG " + juce::String (smoothedAverageThd, 2) + "%", leftHeader.removeFromLeft (110), juce::Justification::centredLeft);
+    g.drawText ("PEAK " + juce::String (smoothedPeak, 2), leftHeader.removeFromLeft (100), juce::Justification::centredLeft);
+    g.drawText ("FLOOR " + juce::String (smoothedNoiseFloor, 5), leftHeader.removeFromLeft (130), juce::Justification::centredLeft);
 
-    const auto channels = processor.getChannelsSnapshot();
-    const auto analysis = processor.getLastAnalysisResult();
+    g.setColour (juce::Colours::white.withAlpha (0.35f));
+    g.setFont (makeMonoFont (8.0f, true));
+    g.drawText ("STATUS", rightHeader.removeFromTop (10), juce::Justification::centredRight);
+    g.setColour (ColorPalette::low.withAlpha (0.92f));
+    g.drawText ("MONITORING", rightHeader, juce::Justification::centredRight);
 
-    double thdSum = 0.0;
-    float maxPeak = 0.0f;
-    for (const auto& channel : channels)
+    auto sectionLabelsY = 362;
+    g.setColour (juce::Colours::white.withAlpha (0.45f));
+    g.setFont (makeMonoFont (8.0f, true));
+    g.drawText ("MASTER THD", 36, sectionLabelsY, 180, 14, juce::Justification::centredLeft);
+    g.drawText ("CHANNEL MEASUREMENTS", 400, sectionLabelsY, 220, 14, juce::Justification::centredLeft);
+    g.drawText ("HARMONIC SPECTRUM", 764, sectionLabelsY, 220, 14, juce::Justification::centredLeft);
+
+    g.setColour (juce::Colours::white.withAlpha (0.82f));
+    g.setFont (makeMonoFont (9.0f));
+    g.drawText ("MASTER " + juce::String (smoothedMasterThd, 2) + "%", 36, 514, 164, 14, juce::Justification::centredLeft);
+    g.setColour (ColorPalette::clean.withAlpha (0.9f));
+    g.drawText ("THD+N " + juce::String (smoothedMasterThdN, 2) + "%", 36, 532, 164, 14, juce::Justification::centredLeft);
+
+    const auto peakChannel = std::max_element (channels.begin(), channels.end(), [] (const ChannelData& a, const ChannelData& b)
     {
-        thdSum += channel.thd;
-        maxPeak = juce::jmax (maxPeak, static_cast<float> (channel.peakLevel));
+        return a.thd < b.thd;
+    });
+
+    g.setColour (juce::Colours::white.withAlpha (0.4f));
+    g.setFont (makeMonoFont (8.0f, true));
+    g.drawText ("PEAK CHANNEL", 764, getHeight() - 52, 116, 12, juce::Justification::centredLeft);
+
+    if (peakChannel != channels.end())
+    {
+        g.setColour (peakChannel->channelColor.withAlpha (0.95f));
+        g.setFont (makeMonoFont (9.0f, true));
+        g.drawText (peakChannel->channelName.isNotEmpty() ? peakChannel->channelName : ("CH " + juce::String (peakChannel->channelId + 1)),
+                    882, getHeight() - 53, 100, 14, juce::Justification::centredLeft);
+        g.setColour (ColorPalette::mediumHigh.withAlpha (0.92f));
+        g.setFont (makeMonoFont (8.5f));
+        g.drawText (juce::String (peakChannel->thd, 2) + "%", 984, getHeight() - 53, 64, 14, juce::Justification::centredLeft);
     }
-
-    const auto averageThd = channels.empty() ? 0.0 : thdSum / static_cast<double> (channels.size());
-
-    g.setColour (juce::Colours::white.withAlpha (0.95f));
-    g.setFont (makeMonoFont (8.5f));
-    g.drawFittedText ("AVG THD " + juce::String (averageThd, 2) + "%  |  MASTER " + juce::String (analysis.thd, 2) + "%  |  PEAK " + juce::String (maxPeak, 2),
-                     28, 328, getWidth() - 56, 16, juce::Justification::centredLeft, 1);
-    g.setColour (juce::Colours::white.withAlpha (0.85f));
-    g.drawFittedText ("FLOOR " + juce::String (analysis.noiseFloor, 5) + "  |  THD+N " + juce::String (analysis.thdN, 2) + "%",
-                     28, 344, getWidth() - 56, 16, juce::Justification::centredLeft, 1);
 }
 
 void THDAnalyzerPluginEditor::resized()
@@ -739,14 +825,14 @@ void THDAnalyzerPluginEditor::resized()
     headerBar->setBounds (0, 0, getWidth(), 50);
 
     pluginModeLabel.setBounds (24, 58, 70, 16);
-    pluginModeCombo.setBounds (24, 74, 140, 24);
-    channelIdLabel.setBounds (176, 58, 70, 16);
-    channelIdCombo.setBounds (176, 74, 120, 24);
+    pluginModeCombo.setBounds (24, 74, 148, 24);
+    displayModeLabel.setBounds (184, 58, 70, 16);
+    displayModeCombo.setBounds (184, 74, 120, 24);
 
     channelViewport.setBounds (24, 104, getWidth() - 48, 164);
-    constexpr int cardWidth = 110;
+    constexpr int cardWidth = 112;
     constexpr int cardGap = 10;
-    constexpr int cardHeight = 150;
+    constexpr int cardHeight = 152;
 
     int x = 0;
     for (auto& card : channelCards)
@@ -757,16 +843,23 @@ void THDAnalyzerPluginEditor::resized()
 
     channelViewportContent.setSize (x + 8, cardHeight);
 
-    masterGaugeDisplay->setBounds (36, 368, 160, 110);
+    const int contentLeft = 36;
+    const int contentTop = 382;
+    const int contentWidth = getWidth() - 72;
+    const int columnGap = 18;
+    const int columnWidth = (contentWidth - (columnGap * 2)) / 3;
 
-    auto statsX = 208;
-    auto y = 368;
-    constexpr int rowHeight = 20;
+    masterGaugeDisplay->setBounds (contentLeft, contentTop, columnWidth, 122);
+
+    auto statsX = contentLeft + columnWidth + columnGap;
+    auto y = contentTop;
+    constexpr int rowHeight = 17;
     for (size_t i = 0; i < progressRows.size(); ++i)
-        progressRows[i]->setBounds (statsX, y + static_cast<int> (i) * rowHeight, 280, rowHeight);
+        progressRows[i]->setBounds (statsX, y + static_cast<int> (i) * rowHeight, columnWidth, rowHeight);
 
-    harmonicSpectrumDisplay->setBounds (500, 368, getWidth() - 536, 110);
-    historyTimelineDisplay->setBounds (36, 492, getWidth() - 72, getHeight() - 520);
+    const int rightX = statsX + columnWidth + columnGap;
+    harmonicSpectrumDisplay->setBounds (rightX, contentTop, columnWidth, 122);
+    historyTimelineDisplay->setBounds (rightX, contentTop + 142, columnWidth, 80);
 }
 
 void THDAnalyzerPluginEditor::timerCallback()
@@ -785,22 +878,50 @@ void THDAnalyzerPluginEditor::timerCallback()
         card->refreshFromProcessor();
 
     const auto analysis = processor.getLastAnalysisResult();
+
+    double thdSum = 0.0;
+    float maxPeak = 0.0f;
+    for (const auto& channel : snapshotChannels)
+    {
+        thdSum += channel.thd;
+        maxPeak = juce::jmax (maxPeak, static_cast<float> (channel.peakLevel));
+    }
+
+    const auto averageThd = snapshotChannels.empty() ? 0.0f : static_cast<float> (thdSum / static_cast<double> (snapshotChannels.size()));
+    const auto measuredThd = juce::jlimit (0.0f, 100.0f, analysis.thd);
     const auto measuredThdN = juce::jlimit (0.0f, 100.0f, analysis.thdN);
+    const auto measuredFloor = juce::jlimit (0.0f, 1.0f, analysis.noiseFloor);
     const auto gatedTargetThdN = analysis.level < 0.001f ? 0.0f : measuredThdN;
 
-    constexpr float attack = 0.20f;
-    constexpr float release = 0.08f;
+    const bool fastMode = displaySpeed == DisplaySpeed::fast;
+    const auto attack = fastMode ? 0.38f : 0.12f;
+    const auto release = fastMode ? 0.24f : 0.06f;
+
     const auto smoothing = gatedTargetThdN > smoothedMasterThdN ? attack : release;
     smoothedMasterThdN += (gatedTargetThdN - smoothedMasterThdN) * smoothing;
+    smoothedAverageThd += (averageThd - smoothedAverageThd) * (fastMode ? 0.34f : 0.11f);
+    smoothedMasterThd += (measuredThd - smoothedMasterThd) * (fastMode ? 0.34f : 0.11f);
+    smoothedPeak += (maxPeak - smoothedPeak) * (fastMode ? 0.42f : 0.12f);
+    smoothedNoiseFloor += (measuredFloor - smoothedNoiseFloor) * (fastMode ? 0.32f : 0.10f);
+
+    if (smoothedHarmonics.size() != analysis.harmonics.size())
+        smoothedHarmonics.assign (analysis.harmonics.size(), 0.0f);
+
+    const auto harmonicSmoothing = fastMode ? 0.42f : 0.12f;
+    for (size_t i = 0; i < smoothedHarmonics.size(); ++i)
+    {
+        const auto target = juce::jlimit (0.0f, 1.0f, analysis.harmonics[i]);
+        smoothedHarmonics[i] += (target - smoothedHarmonics[i]) * harmonicSmoothing;
+    }
 
     masterGaugeDisplay->setValue (smoothedMasterThdN);
     masterGaugeDisplay->setTooltip ("THD+N " + juce::String (smoothedMasterThdN, 2) + "% (smoothed)");
 
-    harmonicSpectrumDisplay->setData (analysis.harmonics);
+    harmonicSpectrumDisplay->setData (smoothedHarmonics);
     harmonicSpectrumDisplay->setTooltip ("Fundamental " + juce::String (analysis.fundamentalFrequency, 1) + " Hz");
 
     historyTimelineDisplay->pushValue (smoothedMasterThdN);
-    historyTimelineDisplay->setTooltip ("Noise floor " + juce::String (analysis.noiseFloor, 5));
+    historyTimelineDisplay->setTooltip ("Noise floor " + juce::String (smoothedNoiseFloor, 5));
 
     repaint();
 }
