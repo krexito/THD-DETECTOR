@@ -8,6 +8,7 @@
 
 std::array<THDAnalyzerPlugin::SharedChannelState, THDAnalyzerPlugin::maxDynamicChannels> THDAnalyzerPlugin::sharedChannelStates {};
 juce::SpinLock THDAnalyzerPlugin::sharedChannelStatesLock;
+std::atomic<uint32_t> THDAnalyzerPlugin::nextInstanceId { 1 };
 
 THDAnalyzerPlugin::THDAnalyzerPlugin()
     : AudioProcessor (BusesProperties()
@@ -19,6 +20,7 @@ THDAnalyzerPlugin::THDAnalyzerPlugin()
                     #endif
                       )
     , state (*this, nullptr, "THDAnalyzerParameters", createParameterLayout())
+    , instanceId (nextInstanceId.fetch_add (1, std::memory_order_relaxed))
 {
     cacheParameterPointers();
 
@@ -48,6 +50,7 @@ THDAnalyzerPlugin::~THDAnalyzerPlugin()
     }
 }
 
+
 juce::AudioProcessorValueTreeState::ParameterLayout THDAnalyzerPlugin::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
@@ -55,7 +58,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout THDAnalyzerPlugin::createPar
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         juce::ParameterID { "pluginMode", 1 },
         "Plugin Mode",
-        juce::StringArray { "Channel Strip", "Master Brain" },
+        juce::StringArray { "Channel", "Master Brain" },
         static_cast<int> (PluginMode::ChannelStrip)));
 
     params.push_back (std::make_unique<juce::AudioParameterInt> (
@@ -150,7 +153,6 @@ void THDAnalyzerPlugin::setChannelId (int id)
             channelParam->setValueNotifyingHost (state.getParameterRange ("channelId").convertTo0to1 (static_cast<float> (id)));
 
         cachedChannelId.store (id, std::memory_order_release);
-
         ensureChannelExists (id);
     }
 }
@@ -197,6 +199,7 @@ void THDAnalyzerPlugin::sendTHDDataToMaster (const FFTAnalyzer::AnalysisResult& 
     midiOutputBuffer.addEvent (midiMsg, 0);
 }
 
+
 void THDAnalyzerPlugin::publishSharedChannelData (const FFTAnalyzer::AnalysisResult& analysis, float peakLevel)
 {
     if (getPluginMode() != PluginMode::ChannelStrip)
@@ -216,6 +219,8 @@ void THDAnalyzerPlugin::publishSharedChannelData (const FFTAnalyzer::AnalysisRes
         shared.harmonics[i] = i < analysis.harmonics.size() ? analysis.harmonics[i] : 0.0f;
 
     ++shared.sequence;
+    shared.lastPublishMs = juce::Time::getMillisecondCounterHiRes();
+    shared.publisherInstanceId = instanceId;
     shared.active = true;
 }
 
@@ -228,9 +233,24 @@ void THDAnalyzerPlugin::ingestSharedChannelData()
 
     for (int channelId = 0; channelId < maxDynamicChannels; ++channelId)
     {
-        const auto& shared = sharedChannelStates[static_cast<size_t> (channelId)];
+        auto& shared = sharedChannelStates[static_cast<size_t> (channelId)];
         if (! shared.active || shared.sequence == 0)
             continue;
+
+        const auto ageMs = juce::Time::getMillisecondCounterHiRes() - shared.lastPublishMs;
+        if (ageMs > (channelStaleTimeoutSeconds * 1000.0))
+        {
+            shared.active = false;
+            continue;
+        }
+
+        if (shared.publisherInstanceId == instanceId)
+            continue;
+
+        if (shared.sequence == consumedSharedSequences[static_cast<size_t> (channelId)])
+            continue;
+
+        consumedSharedSequences[static_cast<size_t> (channelId)] = shared.sequence;
 
         ensureChannelExists (channelId);
 
@@ -314,6 +334,8 @@ void THDAnalyzerPlugin::reset()
     analysisSamplesSinceLastRun = 0;
     internalClockSeconds = 0.0;
     midiOutputBuffer.clear();
+    consumedSharedSequences.fill (0);
+
 
     {
         const juce::SpinLock::ScopedLockType lock (analysisDataLock);
