@@ -68,6 +68,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout THDAnalyzerPlugin::createPar
         maxDynamicChannels - 1,
         0));
 
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "thdOutbound", 1 },
+        "THD Outbound",
+        juce::NormalisableRange<float> (0.0f, 100.0f),
+        0.0f,
+        juce::AudioParameterFloatAttributes().withAutomatable (false).withMeta (true)));
+
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "thdNOutbound", 1 },
+        "THD+N Outbound",
+        juce::NormalisableRange<float> (0.0f, 100.0f),
+        0.0f,
+        juce::AudioParameterFloatAttributes().withAutomatable (false).withMeta (true)));
+
     for (int i = 0; i < 8; ++i)
     {
         params.push_back (std::make_unique<juce::AudioParameterBool> (
@@ -98,7 +112,6 @@ void THDAnalyzerPlugin::cacheParameterPointers()
 {
     pluginModeParamValue = state.getRawParameterValue ("pluginMode");
     channelIdParamValue = state.getRawParameterValue ("channelId");
-
     for (size_t i = 0; i < channelMutedParamValues.size(); ++i)
     {
         channelMutedParamValues[i] = state.getRawParameterValue (channelMutedParamId (static_cast<int> (i)));
@@ -173,6 +186,29 @@ FFTAnalyzer::AnalysisResult THDAnalyzerPlugin::getLastAnalysisResult() const
     return lastAnalysis;
 }
 
+bool THDAnalyzerPlugin::popLatestAnalysisResultForEditor (FFTAnalyzer::AnalysisResult& destination)
+{
+    int start1 = 0;
+    int size1 = 0;
+    int start2 = 0;
+    int size2 = 0;
+    analysisSnapshotFifo.prepareToRead (analysisSnapshotFifo.getNumReady(), start1, size1, start2, size2);
+
+    if (size1 == 0 && size2 == 0)
+    {
+        analysisSnapshotFifo.finishedRead (0);
+        return false;
+    }
+
+    if (size2 > 0)
+        destination = analysisSnapshotBuffer[static_cast<size_t> (start2 + size2 - 1)].analysis;
+    else
+        destination = analysisSnapshotBuffer[static_cast<size_t> (start1 + size1 - 1)].analysis;
+
+    analysisSnapshotFifo.finishedRead (size1 + size2);
+    return true;
+}
+
 std::vector<ChannelData> THDAnalyzerPlugin::getChannelsSnapshot() const
 {
     const juce::SpinLock::ScopedLockType lock (analysisDataLock);
@@ -197,6 +233,62 @@ void THDAnalyzerPlugin::sendTHDDataToMaster (const FFTAnalyzer::AnalysisResult& 
     juce::MidiMessage midiMsg;
     msg.toMidiBytes (midiMsg);
     midiOutputBuffer.addEvent (midiMsg, 0);
+}
+
+void THDAnalyzerPlugin::pushAnalysisSnapshotForEditor (const FFTAnalyzer::AnalysisResult& analysis)
+{
+    int start1 = 0;
+    int size1 = 0;
+    int start2 = 0;
+    int size2 = 0;
+    analysisSnapshotFifo.prepareToWrite (1, start1, size1, start2, size2);
+
+    if (size1 > 0)
+    {
+        analysisSnapshotBuffer[static_cast<size_t> (start1)].analysis = analysis;
+        analysisSnapshotFifo.finishedWrite (1);
+        return;
+    }
+
+    int dropStart1 = 0;
+    int dropSize1 = 0;
+    int dropStart2 = 0;
+    int dropSize2 = 0;
+    analysisSnapshotFifo.prepareToRead (1, dropStart1, dropSize1, dropStart2, dropSize2);
+    const auto itemsToDrop = dropSize1 + dropSize2;
+    if (itemsToDrop > 0)
+        analysisSnapshotFifo.finishedRead (itemsToDrop);
+
+    analysisSnapshotFifo.prepareToWrite (1, start1, size1, start2, size2);
+    if (size1 > 0)
+    {
+        analysisSnapshotBuffer[static_cast<size_t> (start1)].analysis = analysis;
+        analysisSnapshotFifo.finishedWrite (1);
+    }
+}
+
+void THDAnalyzerPlugin::updateOutboundParameters (const FFTAnalyzer::AnalysisResult& analysis)
+{
+    const auto nowMs = juce::Time::getMillisecondCounterHiRes();
+    const auto clampedThd = juce::jlimit (0.0f, 100.0f, analysis.thd);
+    const auto clampedThdN = juce::jlimit (0.0f, 100.0f, analysis.thdN);
+
+    const auto shouldPublishByTime = (nowMs - lastOutboundPublishMs) >= outboundPublishIntervalMs;
+    const auto hasSignificantChange = std::abs (clampedThd - lastPublishedThd) >= outboundPublishDeltaThreshold
+        || std::abs (clampedThdN - lastPublishedThdN) >= outboundPublishDeltaThreshold;
+
+    if (! shouldPublishByTime && ! hasSignificantChange)
+        return;
+
+    if (auto* thdParameter = state.getParameter ("thdOutbound"))
+        thdParameter->setValueNotifyingHost (state.getParameterRange ("thdOutbound").convertTo0to1 (clampedThd));
+
+    if (auto* thdNParameter = state.getParameter ("thdNOutbound"))
+        thdNParameter->setValueNotifyingHost (state.getParameterRange ("thdNOutbound").convertTo0to1 (clampedThdN));
+
+    lastPublishedThd = clampedThd;
+    lastPublishedThdN = clampedThdN;
+    lastOutboundPublishMs = nowMs;
 }
 
 
@@ -335,6 +427,10 @@ void THDAnalyzerPlugin::reset()
     internalClockSeconds = 0.0;
     midiOutputBuffer.clear();
     consumedSharedSequences.fill (0);
+    analysisSnapshotFifo.reset();
+    lastPublishedThd = -1.0f;
+    lastPublishedThdN = -1.0f;
+    lastOutboundPublishMs = 0.0;
 
 
     {
@@ -474,6 +570,8 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
 
         const auto analysis = fftAnalyzer.analyze (orderedSamplesScratch.data(), FFTAnalyzer::fftSize, static_cast<float> (getSampleRate()));
         realtimeAnalysisCache = analysis;
+        pushAnalysisSnapshotForEditor (analysis);
+        updateOutboundParameters (analysis);
         {
             const juce::SpinLock::ScopedLockType lock (analysisDataLock);
             lastAnalysis = analysis;

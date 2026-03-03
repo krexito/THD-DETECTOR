@@ -182,9 +182,10 @@ class THDAnalyzerPluginEditor::HarmonicSpectrumDisplay final : public juce::Comp
                                                                 public juce::SettableTooltipClient
 {
 public:
-    void setData (const std::vector<float>& harmonicsToUse)
+    void setData (const std::vector<float>& harmonicsToUse, float fundamentalFrequencyToUse)
     {
         harmonics = harmonicsToUse;
+        fundamentalFrequency = juce::jmax (0.0f, fundamentalFrequencyToUse);
         repaint();
     }
 
@@ -213,7 +214,9 @@ public:
                                                plotArea.getBottom() - plotArea.getHeight() * value,
                                                barWidth,
                                                plotArea.getHeight() * value);
-            const auto colour = statusColourForThd (value * 2.0f);
+            const auto harmonicNumber = i + 2;
+            const auto isEvenHarmonic = (harmonicNumber % 2) == 0;
+            const auto colour = isEvenHarmonic ? ColorPalette::accentBlue : ColorPalette::mediumHigh;
             g.setColour (colour.withAlpha (0.85f));
             g.fillRoundedRectangle (bar, 2.5f);
 
@@ -224,10 +227,15 @@ public:
                                               static_cast<int> (bar.getWidth()), 12),
                         juce::Justification::centred);
         }
+
+        g.setColour (juce::Colours::white.withAlpha (0.45f));
+        g.setFont (makeMonoFont (8.0f));
+        g.drawText ("F0 " + juce::String (fundamentalFrequency, 1) + " Hz", getLocalBounds().removeFromTop (18).reduced (8, 0), juce::Justification::centredRight);
     }
 
 private:
     std::vector<float> harmonics = std::vector<float> (7, 0.0f);
+    float fundamentalFrequency = 0.0f;
 };
 
 class THDAnalyzerPluginEditor::HistoryTimelineDisplay final : public juce::Component,
@@ -311,7 +319,12 @@ class VUMeter final : public juce::Component
 public:
     void setLevel (float value)
     {
-        level = juce::jlimit (0.0f, 1.0f, value);
+        targetLevel = juce::jlimit (0.0f, 1.0f, value);
+
+        const auto attack = 0.25f;
+        const auto release = 0.08f;
+        const auto smoothing = targetLevel > level ? attack : release;
+        level += (targetLevel - level) * smoothing;
         repaint();
     }
 
@@ -350,6 +363,7 @@ public:
 
 private:
     float level = 0.0f;
+    float targetLevel = 0.0f;
 };
 
 class THDAnalyzerPluginEditor::ProgressBarRow final : public juce::Component
@@ -912,7 +926,10 @@ void THDAnalyzerPluginEditor::timerCallback()
             card->refreshFromProcessor();
     }
 
-    const auto analysis = processor.getLastAnalysisResult();
+    auto analysis = processor.getLastAnalysisResult();
+    FFTAnalyzer::AnalysisResult queuedAnalysis;
+    if (processor.popLatestAnalysisResultForEditor (queuedAnalysis))
+        analysis = queuedAnalysis;
 
     double thdSum = 0.0;
     float maxPeak = 0.0f;
@@ -952,7 +969,7 @@ void THDAnalyzerPluginEditor::timerCallback()
     masterGaugeDisplay->setValue (smoothedMasterThdN);
     masterGaugeDisplay->setTooltip ("THD+N " + juce::String (smoothedMasterThdN, 2) + "% (smoothed)");
 
-    harmonicSpectrumDisplay->setData (smoothedHarmonics);
+    harmonicSpectrumDisplay->setData (smoothedHarmonics, analysis.fundamentalFrequency);
     harmonicSpectrumDisplay->setTooltip ("Fundamental " + juce::String (analysis.fundamentalFrequency, 1) + " Hz");
 
     historyTimelineDisplay->pushValue (smoothedMasterThdN);
