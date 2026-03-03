@@ -20,7 +20,7 @@ The THD Analyzer project has evolved from a web-based analyzer to include native
 - [x] THD Distortion Analyzer DAW plugin — v1 (with NLS Summer coloring controls)
 - [x] THD Analyzer v2 — Pure measurement architecture (no signal coloring)
 - [x] THD Analyzer v3 — Real FFT analysis using Web Audio API AnalyserNode
-- [x] VST Plugin Communication System — MIDI-based Channel Strip ↔ Master Brain communication
+- [x] VST Plugin Communication System — In-process shared-state Channel Strip ↔ Master Brain communication
 - [x] Plugin reset hardening — centralized startup state reset in `reset()` and invoked from `prepareToPlay` for cleaner audio initialization
 
 ## Current Structure
@@ -49,11 +49,11 @@ The THD Analyzer project has evolved from a web-based analyzer to include native
   - Displays: master THD gauge, channel table (THD/THD+N/dominant harmonic/level), harmonic spectrum H2–H8, rolling THD history timeline, alert indicator
 
 ### VST Plugin Communication System
-The VST plugins communicate using MIDI System Exclusive messages:
-- **Channel Strip Mode**: Each plugin instance sends THD data via MIDI to the Master Brain
-- **Master Brain Mode**: Receives MIDI data from all Channel Strip plugins
-- **Protocol**: Custom SysEx (0xF0 0x7D 0x01 ...) containing channel ID, THD, THD+N, level, peak, harmonics
-- **Implementation**: `THDDataMessage` struct with MIDI serialization/deserialization
+The VST plugin instances communicate using in-process shared state:
+- **Channel Strip Mode**: Each instance publishes THD telemetry to a static shared channel table.
+- **Master Brain Mode**: Reads and aggregates active channel telemetry from shared state.
+- **Transport**: Lock-protected memory in the same plugin process (no SysEx serialization required).
+- **Implementation**: `SharedChannelState` table in `THDAnalyzerPlugin` with sequence counters and stale-timeout pruning.
 
 ### ChannelData Interface
 ```ts
@@ -196,3 +196,4 @@ export async function GET() {
 
 | Session 41 | Build-break hotfix — fixed MSVC incompatibility in Master Brain harmonic smoothing by converting fixed-size `std::array<float, 7>` harmonics into a `std::vector<float>` via iterator-range construction before aggregation logic. |
 | Session 42 | Main-branch hotfix refinement — moved the MSVC harmonic-target fix to `main` and hardened initialization by pre-sizing from smoothed harmonic state before bounded `std::copy`, keeping master aggregation behavior unchanged while avoiding container-conversion pitfalls. |
+| Session 43 | IPC simplification + THD harmonic robustness — removed legacy MIDI SysEx channel/master telemetry path in favor of existing in-process shared channel state, set plugin MIDI input/output requirements to false, and improved harmonic extraction by searching ±2 FFT bins around each harmonic target to reduce bin-misalignment under real-world detuning. |

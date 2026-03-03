@@ -16,7 +16,6 @@
 #include <array>
 #include <vector>
 #include <cmath>
-#include <cstring>
 #include <atomic>
 #include <cstdint>
 
@@ -124,7 +123,13 @@ public:
             const int harmonicBin = harmonicBins[static_cast<size_t> (harmonic - 1)];
             if (harmonicBin >= 1 && harmonicBin < fftSize / 2)
             {
-                const float harmonicMagSquared = magnitudeSquaredBuffer[static_cast<size_t> (harmonicBin)];
+                float harmonicMagSquared = 0.0f;
+                const int lowerBin = juce::jmax (1, harmonicBin - 2);
+                const int upperBin = juce::jmin ((fftSize / 2) - 1, harmonicBin + 2);
+
+                for (int bin = lowerBin; bin <= upperBin; ++bin)
+                    harmonicMagSquared = juce::jmax (harmonicMagSquared, magnitudeSquaredBuffer[static_cast<size_t> (bin)]);
+
                 const float harmonicMag = std::sqrt (harmonicMagSquared);
                 result.harmonics[static_cast<size_t> (harmonic - 2)] = harmonicMag;
                 harmonicSumSquared += harmonicMagSquared;
@@ -202,85 +207,6 @@ enum class PluginMode
     MasterBrain
 };
 
-struct THDDataMessage
-{
-    int channelId = 0;
-    float thd = 0.0f;
-    float thdN = 0.0f;
-    float level = 0.0f;
-    float peakLevel = 0.0f;
-    std::array<float, 7> harmonics {};
-
-    void toMidiBytes (juce::MidiMessage& midi) const
-    {
-        std::vector<uint8_t> sysex;
-        sysex.reserve (49);
-
-        sysex.push_back (0xF0);
-        sysex.push_back (0x7D);
-        sysex.push_back (0x01);
-        sysex.push_back (static_cast<uint8_t> (channelId));
-
-        const auto appendFloat = [&sysex] (float value)
-        {
-            std::array<uint8_t, sizeof (float)> bytes {};
-            std::memcpy (bytes.data(), &value, sizeof (float));
-            sysex.insert (sysex.end(), bytes.begin(), bytes.end());
-        };
-
-        appendFloat (thd);
-        appendFloat (thdN);
-        appendFloat (level);
-        appendFloat (peakLevel);
-
-        for (const auto harmonic : harmonics)
-            appendFloat (harmonic);
-
-        sysex.push_back (0xF7);
-        midi = juce::MidiMessage (sysex.data(), static_cast<int> (sysex.size()), 0.0);
-    }
-
-    bool fromMidiBytes (const juce::MidiMessage& midi)
-    {
-        if (! midi.isSysEx())
-            return false;
-
-        const auto* data = midi.getSysExData();
-        const int size = midi.getSysExDataSize();
-
-        constexpr int payloadSize = 1 + (4 * 4) + (7 * 4);
-        if (data == nullptr || size < payloadSize + 2)
-            return false;
-
-        if (data[0] != 0x7D || data[1] != 0x01)
-            return false;
-
-        int pos = 2;
-        channelId = data[pos++];
-
-        const auto readFloat = [&data, size, &pos] (float& destination)
-        {
-            if (pos + static_cast<int> (sizeof (float)) > size)
-                return false;
-
-            std::memcpy (&destination, data + pos, sizeof (float));
-            pos += static_cast<int> (sizeof (float));
-            return true;
-        };
-
-        if (! readFloat (thd) || ! readFloat (thdN) || ! readFloat (level) || ! readFloat (peakLevel))
-            return false;
-
-        for (auto& harmonic : harmonics)
-        {
-            if (! readFloat (harmonic))
-                return false;
-        }
-
-        return true;
-    }
-};
-
 class THDAnalyzerPlugin : public juce::AudioProcessor,
                           private juce::AudioProcessorValueTreeState::Listener
 {
@@ -300,8 +226,6 @@ public:
     std::vector<ChannelData> getChannelsSnapshot() const;
     void publishDisplayOutboundValues (float thd, float thdN);
 
-    void sendTHDDataToMaster (const FFTAnalyzer::AnalysisResult& analysis, float peakLevel);
-    void receiveTHDData (const juce::MidiMessage& midi);
     void removeChannel (int id);
     void ensureChannelExists (int channelId);
 
@@ -362,8 +286,6 @@ private:
     std::atomic<int> cachedPluginMode { static_cast<int> (PluginMode::ChannelStrip) };
     std::atomic<int> cachedChannelId { 0 };
     std::atomic<bool> editorDataReady { false };
-    juce::MidiBuffer midiOutputBuffer;
-
     std::array<float, FFTAnalyzer::fftSize> analysisFifo {};
     std::array<float, FFTAnalyzer::fftSize> orderedSamplesScratch {};
     std::vector<float> monoBufferScratch;
