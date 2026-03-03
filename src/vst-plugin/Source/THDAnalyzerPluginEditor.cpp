@@ -620,7 +620,7 @@ void THDAnalyzerPluginEditor::configureModeControls()
     pluginModeLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.7f));
     addAndMakeVisible (pluginModeLabel);
 
-    pluginModeCombo.addItem ("Channel Strip", 1);
+    pluginModeCombo.addItem ("Channel", 1);
     pluginModeCombo.addItem ("Master Brain", 2);
     pluginModeCombo.setTooltip ("Bound to processor Plugin Mode parameter");
     pluginModeCombo.setColour (juce::ComboBox::backgroundColourId, ColorPalette::surfaceA.brighter (0.35f));

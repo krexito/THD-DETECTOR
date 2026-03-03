@@ -270,6 +270,7 @@ public:
     THDAnalyzerPlugin();
     ~THDAnalyzerPlugin() override;
 
+
     void setPluginMode (PluginMode mode);
     PluginMode getPluginMode() const;
 
@@ -370,11 +371,16 @@ private:
         float peakLevel = 0.0f;
         std::array<float, 7> harmonics {};
         uint64_t sequence = 0;
+        double lastPublishMs = 0.0;
+        uint32_t publisherInstanceId = 0;
         bool active = false;
     };
 
     static std::array<SharedChannelState, maxDynamicChannels> sharedChannelStates;
     static juce::SpinLock sharedChannelStatesLock;
+    static std::atomic<uint32_t> nextInstanceId;
+    const uint32_t instanceId = 0;
+    std::array<uint64_t, maxDynamicChannels> consumedSharedSequences {};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (THDAnalyzerPlugin)
 };
