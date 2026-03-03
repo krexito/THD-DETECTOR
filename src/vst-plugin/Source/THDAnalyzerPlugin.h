@@ -46,6 +46,8 @@ public:
         float thd = 0.0f;
         float thdN = 0.0f;
         float level = 0.0f;
+        float analysisConfidence = 0.0f;
+        bool fundamentalValid = false;
         std::array<float, 7> harmonics {}; // H2-H8
         float noiseFloor = 0.0f;
     };
@@ -95,6 +97,20 @@ public:
         result.level = std::sqrt (sumSquares / static_cast<float> (numSamples));
 
         if (result.fundamentalFrequency <= 0.0f || result.level <= 0.0001f || maxMagSquared <= 0.0f)
+            return result;
+
+        const auto fundamentalRms = std::sqrt (maxMagSquared) / static_cast<float> (fftSize);
+        const auto fundamentalDb = juce::Decibels::gainToDecibels (juce::jmax (fundamentalRms, 1.0e-12f));
+
+        float totalSpectralPower = 0.0f;
+        for (int i = minBin; i < fftSize / 2; ++i)
+            totalSpectralPower += magnitudeSquaredBuffer[static_cast<size_t> (i)];
+
+        const auto fundamentalPowerRatio = totalSpectralPower > 0.0f ? (maxMagSquared / totalSpectralPower) : 0.0f;
+        result.analysisConfidence = juce::jlimit (0.0f, 1.0f, fundamentalPowerRatio);
+        result.fundamentalValid = (fundamentalDb >= -60.0f) && (fundamentalPowerRatio >= 0.1f);
+
+        if (! result.fundamentalValid)
             return result;
 
         std::array<int, 8> harmonicBins {};
@@ -282,6 +298,7 @@ public:
     FFTAnalyzer::AnalysisResult getLastAnalysisResult() const;
     bool popLatestAnalysisResultForEditor (FFTAnalyzer::AnalysisResult& destination);
     std::vector<ChannelData> getChannelsSnapshot() const;
+    void publishDisplayOutboundValues (float thd, float thdN);
 
     void sendTHDDataToMaster (const FFTAnalyzer::AnalysisResult& analysis, float peakLevel);
     void receiveTHDData (const juce::MidiMessage& midi);
@@ -353,7 +370,10 @@ private:
     int fifoWritePosition = 0;
     bool fifoFilled = false;
     int analysisSamplesSinceLastRun = 0;
+    int samplesSinceLastSnapshotPush = 0;
+    int snapshotIntervalSamples = 1;
     static constexpr int analysisHopSize = FFTAnalyzer::fftSize / 4;
+    static constexpr float targetSnapshotRateHz = 25.0f;
 
     std::vector<ChannelData> channels;
     double internalClockSeconds = 0.0;
@@ -373,10 +393,10 @@ private:
     float lastPublishedThdN = -1.0f;
     double lastOutboundPublishMs = 0.0;
     static constexpr double outboundPublishIntervalMs = 33.0;
-    static constexpr float outboundPublishDeltaThreshold = 0.025f;
+    static constexpr float outboundPublishDeltaThreshold = 0.1f;
 
     void pushAnalysisSnapshotForEditor (const FFTAnalyzer::AnalysisResult& analysis);
-    void updateOutboundParameters (const FFTAnalyzer::AnalysisResult& analysis);
+    void updateOutboundParameters (float smoothedThd, float smoothedThdN);
 
     static juce::Colour colorForChannelId (int channelId);
     static juce::String defaultChannelNameForId (int channelId);
