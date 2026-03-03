@@ -33,7 +33,7 @@ public:
     {
         windowBuffer.resize (fftSize, 0.0f);
         fftData.resize (fftSize * 2, 0.0f);
-        magnitudeBuffer.resize (fftSize / 2, 0.0f);
+        magnitudeSquaredBuffer.resize (fftSize / 2, 0.0f);
 
         for (int i = 0; i < fftSize; ++i)
             windowBuffer[i] = 0.5f * (1.0f - std::cos (2.0f * juce::MathConstants<float>::pi * static_cast<float> (i) / static_cast<float> (fftSize - 1)));
@@ -67,20 +67,20 @@ public:
         {
             const float real = fftData[i * 2];
             const float imag = fftData[(i * 2) + 1];
-            magnitudeBuffer[static_cast<size_t> (i)] = std::sqrt ((real * real) + (imag * imag));
+            magnitudeSquaredBuffer[static_cast<size_t> (i)] = (real * real) + (imag * imag);
         }
 
         const int minBin = juce::jlimit (1, (fftSize / 2) - 1, static_cast<int> ((20.0f * static_cast<float> (fftSize)) / sampleRate));
         const int maxBin = juce::jlimit (minBin, (fftSize / 2) - 1, static_cast<int> ((2000.0f * static_cast<float> (fftSize)) / sampleRate));
 
-        float maxMag = 0.0f;
+        float maxMagSquared = 0.0f;
         int fundamentalBin = 0;
 
         for (int i = minBin; i <= maxBin; ++i)
         {
-            if (magnitudeBuffer[static_cast<size_t> (i)] > maxMag)
+            if (magnitudeSquaredBuffer[static_cast<size_t> (i)] > maxMagSquared)
             {
-                maxMag = magnitudeBuffer[static_cast<size_t> (i)];
+                maxMagSquared = magnitudeSquaredBuffer[static_cast<size_t> (i)];
                 fundamentalBin = i;
             }
         }
@@ -93,28 +93,30 @@ public:
 
         result.level = std::sqrt (sumSquares / static_cast<float> (numSamples));
 
-        if (result.fundamentalFrequency <= 0.0f || result.level <= 0.0001f || maxMag <= 0.0f)
+        if (result.fundamentalFrequency <= 0.0f || result.level <= 0.0001f || maxMagSquared <= 0.0f)
             return result;
 
         std::array<int, 8> harmonicBins {};
         for (int harmonic = 1; harmonic <= 8; ++harmonic)
             harmonicBins[static_cast<size_t> (harmonic - 1)] = static_cast<int> (static_cast<float> (harmonic) * result.fundamentalFrequency * static_cast<float> (fftSize) / sampleRate);
 
-        float harmonicSum = 0.0f;
+        float harmonicSumSquared = 0.0f;
 
         for (int harmonic = 2; harmonic <= 8; ++harmonic)
         {
             const int harmonicBin = harmonicBins[static_cast<size_t> (harmonic - 1)];
             if (harmonicBin >= 1 && harmonicBin < fftSize / 2)
             {
-                const float harmonicMag = magnitudeBuffer[static_cast<size_t> (harmonicBin)];
+                const float harmonicMagSquared = magnitudeSquaredBuffer[static_cast<size_t> (harmonicBin)];
+                const float harmonicMag = std::sqrt (harmonicMagSquared);
                 result.harmonics[static_cast<size_t> (harmonic - 2)] = harmonicMag;
-                harmonicSum += harmonicMag * harmonicMag;
+                harmonicSumSquared += harmonicMagSquared;
             }
         }
 
-        const float harmonicLevel = std::sqrt (harmonicSum);
-        result.thd = (harmonicLevel / maxMag) * 100.0f;
+        const float harmonicLevel = std::sqrt (harmonicSumSquared);
+        const float fundamentalLevel = std::sqrt (maxMagSquared);
+        result.thd = (harmonicLevel / fundamentalLevel) * 100.0f;
 
         float noiseSum = 0.0f;
         int noiseBins = 0;
@@ -135,14 +137,13 @@ public:
 
             if (! isHarmonicRegion)
             {
-                const auto mag = magnitudeBuffer[static_cast<size_t> (i)];
-                noiseSum += mag * mag;
+                noiseSum += magnitudeSquaredBuffer[static_cast<size_t> (i)];
                 ++noiseBins;
             }
         }
 
         const float noiseLevel = noiseBins > 0 ? std::sqrt (noiseSum / static_cast<float> (noiseBins)) : 0.0f;
-        result.thdN = ((harmonicLevel + noiseLevel) / maxMag) * 100.0f;
+        result.thdN = ((harmonicLevel + noiseLevel) / fundamentalLevel) * 100.0f;
         result.noiseFloor = noiseLevel;
 
         return result;
@@ -152,7 +153,7 @@ private:
     juce::dsp::FFT fft;
     std::vector<float> windowBuffer;
     std::vector<float> fftData;
-    std::vector<float> magnitudeBuffer;
+    std::vector<float> magnitudeSquaredBuffer;
 };
 
 struct ChannelData
