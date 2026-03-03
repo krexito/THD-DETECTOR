@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstring>
 #include <atomic>
+#include <cstdint>
 
 //==============================================================================
 // FFT Analyzer Class - Ported from TypeScript implementation
@@ -32,6 +33,7 @@ public:
     {
         windowBuffer.resize (fftSize, 0.0f);
         fftData.resize (fftSize * 2, 0.0f);
+        magnitudeBuffer.resize (fftSize / 2, 0.0f);
 
         for (int i = 0; i < fftSize; ++i)
             windowBuffer[i] = 0.5f * (1.0f - std::cos (2.0f * juce::MathConstants<float>::pi * static_cast<float> (i) / static_cast<float> (fftSize - 1)));
@@ -61,12 +63,11 @@ public:
 
         fft.performRealOnlyForwardTransform (fftData.data());
 
-        std::vector<float> magnitude (fftSize / 2, 0.0f);
         for (int i = 0; i < fftSize / 2; ++i)
         {
             const float real = fftData[i * 2];
             const float imag = fftData[(i * 2) + 1];
-            magnitude[i] = std::sqrt ((real * real) + (imag * imag));
+            magnitudeBuffer[static_cast<size_t> (i)] = std::sqrt ((real * real) + (imag * imag));
         }
 
         const int minBin = juce::jlimit (1, (fftSize / 2) - 1, static_cast<int> ((20.0f * static_cast<float> (fftSize)) / sampleRate));
@@ -77,9 +78,9 @@ public:
 
         for (int i = minBin; i <= maxBin; ++i)
         {
-            if (magnitude[i] > maxMag)
+            if (magnitudeBuffer[static_cast<size_t> (i)] > maxMag)
             {
-                maxMag = magnitude[i];
+                maxMag = magnitudeBuffer[static_cast<size_t> (i)];
                 fundamentalBin = i;
             }
         }
@@ -95,14 +96,18 @@ public:
         if (result.fundamentalFrequency <= 0.0f || result.level <= 0.0001f || maxMag <= 0.0f)
             return result;
 
+        std::array<int, 8> harmonicBins {};
+        for (int harmonic = 1; harmonic <= 8; ++harmonic)
+            harmonicBins[static_cast<size_t> (harmonic - 1)] = static_cast<int> (static_cast<float> (harmonic) * result.fundamentalFrequency * static_cast<float> (fftSize) / sampleRate);
+
         float harmonicSum = 0.0f;
 
         for (int harmonic = 2; harmonic <= 8; ++harmonic)
         {
-            const int harmonicBin = static_cast<int> (static_cast<float> (harmonic) * result.fundamentalFrequency * static_cast<float> (fftSize) / sampleRate);
+            const int harmonicBin = harmonicBins[static_cast<size_t> (harmonic - 1)];
             if (harmonicBin >= 1 && harmonicBin < fftSize / 2)
             {
-                const float harmonicMag = magnitude[harmonicBin];
+                const float harmonicMag = magnitudeBuffer[static_cast<size_t> (harmonicBin)];
                 result.harmonics[static_cast<size_t> (harmonic - 2)] = harmonicMag;
                 harmonicSum += harmonicMag * harmonicMag;
             }
@@ -120,7 +125,7 @@ public:
 
             for (int harmonic = 1; harmonic <= 8; ++harmonic)
             {
-                const int harmonicBin = static_cast<int> (static_cast<float> (harmonic) * result.fundamentalFrequency * static_cast<float> (fftSize) / sampleRate);
+                const int harmonicBin = harmonicBins[static_cast<size_t> (harmonic - 1)];
                 if (std::abs (i - harmonicBin) < 10)
                 {
                     isHarmonicRegion = true;
@@ -130,7 +135,8 @@ public:
 
             if (! isHarmonicRegion)
             {
-                noiseSum += magnitude[i] * magnitude[i];
+                const auto mag = magnitudeBuffer[static_cast<size_t> (i)];
+                noiseSum += mag * mag;
                 ++noiseBins;
             }
         }
@@ -146,6 +152,7 @@ private:
     juce::dsp::FFT fft;
     std::vector<float> windowBuffer;
     std::vector<float> fftData;
+    std::vector<float> magnitudeBuffer;
 };
 
 struct ChannelData
@@ -340,6 +347,8 @@ private:
     std::vector<float> monoBufferScratch;
     int fifoWritePosition = 0;
     bool fifoFilled = false;
+    int analysisSamplesSinceLastRun = 0;
+    static constexpr int analysisHopSize = FFTAnalyzer::fftSize / 4;
 
     std::vector<ChannelData> channels;
     double internalClockSeconds = 0.0;
@@ -349,6 +358,22 @@ private:
     static juce::Colour colorForChannelId (int channelId);
     static juce::String defaultChannelNameForId (int channelId);
     void pruneStaleChannels();
+    void publishSharedChannelData (const FFTAnalyzer::AnalysisResult& analysis, float peakLevel);
+    void ingestSharedChannelData();
+
+    struct SharedChannelState
+    {
+        float thd = 0.0f;
+        float thdN = 0.0f;
+        float level = 0.0f;
+        float peakLevel = 0.0f;
+        std::array<float, 7> harmonics {};
+        uint64_t sequence = 0;
+        bool active = false;
+    };
+
+    static std::array<SharedChannelState, maxDynamicChannels> sharedChannelStates;
+    static juce::SpinLock sharedChannelStatesLock;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (THDAnalyzerPlugin)
 };

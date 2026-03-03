@@ -662,6 +662,14 @@ void THDAnalyzerPluginEditor::updateControlVisibility()
     const auto isMasterMode = pluginModeCombo.getSelectedId() == 2;
     displayModeLabel.setVisible (isMasterMode);
     displayModeCombo.setVisible (isMasterMode);
+
+    channelViewport.setVisible (isMasterMode);
+
+    for (auto& row : progressRows)
+        row->setVisible (isMasterMode);
+
+    resized();
+    repaint();
 }
 
 void THDAnalyzerPluginEditor::rebuildChannelCards()
@@ -731,22 +739,40 @@ void THDAnalyzerPluginEditor::paint (juce::Graphics& g)
     g.fillRect (getLocalBounds());
 
     const auto channels = processor.getChannelsSnapshot();
+    const auto isMasterMode = pluginModeCombo.getSelectedId() == 2;
 
-    auto channelSection = juce::Rectangle<int> (16, 74, getWidth() - 32, 208);
-    g.setColour (ColorPalette::surfaceC.withAlpha (0.88f));
-    g.fillRoundedRectangle (channelSection.toFloat(), 10.0f);
-    g.setColour (ColorPalette::borderA.withAlpha (0.95f));
-    g.drawRoundedRectangle (channelSection.toFloat(), 10.0f, 1.0f);
+    if (isMasterMode)
+    {
+        auto channelSection = juce::Rectangle<int> (16, 74, getWidth() - 32, 208);
+        g.setColour (ColorPalette::surfaceC.withAlpha (0.88f));
+        g.fillRoundedRectangle (channelSection.toFloat(), 10.0f);
+        g.setColour (ColorPalette::borderA.withAlpha (0.95f));
+        g.drawRoundedRectangle (channelSection.toFloat(), 10.0f, 1.0f);
 
-    auto channelHeader = channelSection.removeFromTop (24).reduced (12, 0);
-    g.setColour (juce::Colours::white.withAlpha (0.75f));
-    g.setFont (makeMonoFont (9.0f, true));
-    g.drawText ("CHANNEL ANALYZER PLUGINS", channelHeader.removeFromLeft (340), juce::Justification::centredLeft);
-    g.setColour (juce::Colours::white.withAlpha (0.45f));
-    g.setFont (makeMonoFont (8.0f));
-    g.drawText (juce::String (channels.size()) + " channels active", channelHeader, juce::Justification::centredRight);
+        auto channelHeader = channelSection.removeFromTop (24).reduced (12, 0);
+        g.setColour (juce::Colours::white.withAlpha (0.75f));
+        g.setFont (makeMonoFont (9.0f, true));
+        g.drawText ("MASTER BRAIN CHANNEL INPUTS", channelHeader.removeFromLeft (340), juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.45f));
+        g.setFont (makeMonoFont (8.0f));
+        g.drawText (juce::String (channels.size()) + " channels active", channelHeader, juce::Justification::centredRight);
+    }
+    else
+    {
+        auto channelSection = juce::Rectangle<int> (16, 74, getWidth() - 32, 84);
+        g.setColour (ColorPalette::surfaceC.withAlpha (0.88f));
+        g.fillRoundedRectangle (channelSection.toFloat(), 10.0f);
+        g.setColour (ColorPalette::borderA.withAlpha (0.95f));
+        g.drawRoundedRectangle (channelSection.toFloat(), 10.0f, 1.0f);
 
-    auto masterArea = juce::Rectangle<int> (16, 294, getWidth() - 32, getHeight() - 310);
+        g.setColour (juce::Colours::white.withAlpha (0.85f));
+        g.setFont (makeMonoFont (10.0f, true));
+        g.drawText ("CHANNEL STRIP MODE - LOCAL ANALYZER", channelSection.reduced (14, 10), juce::Justification::centredLeft);
+    }
+
+    auto masterArea = isMasterMode
+        ? juce::Rectangle<int> (16, 294, getWidth() - 32, getHeight() - 310)
+        : juce::Rectangle<int> (16, 170, getWidth() - 32, getHeight() - 186);
     g.setColour (ColorPalette::surfaceA.withAlpha (0.92f));
     g.fillRoundedRectangle (masterArea.toFloat(), 14.0f);
     g.setColour (ColorPalette::borderC.withAlpha (0.95f));
@@ -769,7 +795,7 @@ void THDAnalyzerPluginEditor::paint (juce::Graphics& g)
     g.fillEllipse (static_cast<float> (masterTitle.getX()), static_cast<float> (masterTitle.getY() + 4), 7.0f, 7.0f);
     g.setColour (juce::Colours::white.withAlpha (0.9f));
     g.setFont (makeMonoFont (10.0f, true));
-    g.drawText ("THD MASTER ANALYZER", masterTitle.withTrimmedLeft (14), juce::Justification::centredLeft);
+    g.drawText (isMasterMode ? "THD MASTER ANALYZER" : "THD CHANNEL ANALYZER", masterTitle.withTrimmedLeft (14), juce::Justification::centredLeft);
 
     g.setColour (juce::Colours::white.withAlpha (0.68f));
     g.setFont (makeMonoFont (8.0f));
@@ -787,7 +813,7 @@ void THDAnalyzerPluginEditor::paint (juce::Graphics& g)
     g.setColour (juce::Colours::white.withAlpha (0.45f));
     g.setFont (makeMonoFont (8.0f, true));
     g.drawText ("MASTER THD", 36, sectionLabelsY, 180, 14, juce::Justification::centredLeft);
-    g.drawText ("CHANNEL MEASUREMENTS", 400, sectionLabelsY, 220, 14, juce::Justification::centredLeft);
+    g.drawText (isMasterMode ? "CHANNEL MEASUREMENTS" : "LOCAL CHANNEL METRICS", 400, sectionLabelsY, 220, 14, juce::Justification::centredLeft);
     g.drawText ("HARMONIC SPECTRUM", 764, sectionLabelsY, 220, 14, juce::Justification::centredLeft);
 
     g.setColour (juce::Colours::white.withAlpha (0.82f));
@@ -801,19 +827,22 @@ void THDAnalyzerPluginEditor::paint (juce::Graphics& g)
         return a.thd < b.thd;
     });
 
-    g.setColour (juce::Colours::white.withAlpha (0.4f));
-    g.setFont (makeMonoFont (8.0f, true));
-    g.drawText ("PEAK CHANNEL", 764, getHeight() - 52, 116, 12, juce::Justification::centredLeft);
-
-    if (peakChannel != channels.end())
+    if (isMasterMode)
     {
-        g.setColour (peakChannel->channelColor.withAlpha (0.95f));
-        g.setFont (makeMonoFont (9.0f, true));
-        g.drawText (peakChannel->channelName.isNotEmpty() ? peakChannel->channelName : ("CH " + juce::String (peakChannel->channelId + 1)),
-                    882, getHeight() - 53, 100, 14, juce::Justification::centredLeft);
-        g.setColour (ColorPalette::mediumHigh.withAlpha (0.92f));
-        g.setFont (makeMonoFont (8.5f));
-        g.drawText (juce::String (peakChannel->thd, 2) + "%", 984, getHeight() - 53, 64, 14, juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        g.setFont (makeMonoFont (8.0f, true));
+        g.drawText ("PEAK CHANNEL", 764, getHeight() - 52, 116, 12, juce::Justification::centredLeft);
+
+        if (peakChannel != channels.end())
+        {
+            g.setColour (peakChannel->channelColor.withAlpha (0.95f));
+            g.setFont (makeMonoFont (9.0f, true));
+            g.drawText (peakChannel->channelName.isNotEmpty() ? peakChannel->channelName : ("CH " + juce::String (peakChannel->channelId + 1)),
+                        882, getHeight() - 53, 100, 14, juce::Justification::centredLeft);
+            g.setColour (ColorPalette::mediumHigh.withAlpha (0.92f));
+            g.setFont (makeMonoFont (8.5f));
+            g.drawText (juce::String (peakChannel->thd, 2) + "%", 984, getHeight() - 53, 64, 14, juce::Justification::centredLeft);
+        }
     }
 }
 
@@ -828,6 +857,8 @@ void THDAnalyzerPluginEditor::resized()
     pluginModeCombo.setBounds (24, 74, 148, 24);
     displayModeLabel.setBounds (184, 58, 70, 16);
     displayModeCombo.setBounds (184, 74, 120, 24);
+
+    const auto isMasterMode = pluginModeCombo.getSelectedId() == 2;
 
     channelViewport.setBounds (24, 104, getWidth() - 48, 164);
     constexpr int cardWidth = 112;
@@ -844,7 +875,7 @@ void THDAnalyzerPluginEditor::resized()
     channelViewportContent.setSize (x + 8, cardHeight);
 
     const int contentLeft = 36;
-    const int contentTop = 382;
+    const int contentTop = isMasterMode ? 382 : 212;
     const int contentWidth = getWidth() - 72;
     const int columnGap = 18;
     const int columnWidth = (contentWidth - (columnGap * 2)) / 3;
@@ -870,12 +901,16 @@ void THDAnalyzerPluginEditor::timerCallback()
     if (masterGaugeDisplay == nullptr || harmonicSpectrumDisplay == nullptr || historyTimelineDisplay == nullptr)
         return;
 
+    const auto isMasterMode = pluginModeCombo.getSelectedId() == 2;
     const auto snapshotChannels = processor.getChannelsSnapshot();
-    if (channelCards.size() != snapshotChannels.size())
+    if (isMasterMode && channelCards.size() != snapshotChannels.size())
         rebuildChannelCards();
 
-    for (auto& card : channelCards)
-        card->refreshFromProcessor();
+    if (isMasterMode)
+    {
+        for (auto& card : channelCards)
+            card->refreshFromProcessor();
+    }
 
     const auto analysis = processor.getLastAnalysisResult();
 
