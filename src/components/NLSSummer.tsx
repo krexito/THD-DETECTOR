@@ -245,6 +245,210 @@ function THDTimeline({
   );
 }
 
+// ─── THD Frequency Intensity Map ────────────────────────────────────────────
+function THDFrequencyMap({
+  channels,
+  width = 420,
+  height = 82,
+  className = "w-full rounded border border-neutral-800/60",
+}: {
+  channels: ChannelData[];
+  width?: number;
+  height?: number;
+  className?: string;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animRef = useRef<number>(0);
+  const channelsRef = useRef(channels);
+
+  useEffect(() => {
+    channelsRef.current = channels;
+  }, [channels]);
+
+  useEffect(() => {
+    let running = true;
+
+    function draw() {
+      if (!running) return;
+
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const w = canvas.width;
+      const h = canvas.height;
+      const spectrumH = h - 14;
+      const activeChannels = channelsRef.current.filter((ch) => !ch.muted);
+
+      ctx.fillStyle = "#050911";
+      ctx.fillRect(0, 0, w, h);
+
+      // Grid
+      ctx.strokeStyle = "#132034";
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i <= 10; i++) {
+        const x = (i / 10) * w;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, spectrumH);
+        ctx.stroke();
+      }
+      for (let i = 0; i <= 4; i++) {
+        const y = (i / 4) * spectrumH;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      // Frequency color ramp
+      const baseGrad = ctx.createLinearGradient(0, 0, w, 0);
+      baseGrad.addColorStop(0, "#3b82f6");
+      baseGrad.addColorStop(0.25, "#22d3ee");
+      baseGrad.addColorStop(0.5, "#84cc16");
+      baseGrad.addColorStop(0.7, "#facc15");
+      baseGrad.addColorStop(0.85, "#fb923c");
+      baseGrad.addColorStop(1, "#ef4444");
+
+      ctx.fillStyle = baseGrad;
+      ctx.globalAlpha = 0.17;
+      ctx.fillRect(0, 0, w, spectrumH);
+      ctx.globalAlpha = 1;
+
+      const bins = 84;
+      const binW = w / bins;
+      const binEnergy = new Array<number>(bins).fill(0);
+
+      const minF = 20;
+      const maxF = 20000;
+      const nyquist = maxF;
+
+      activeChannels.forEach((ch) => {
+        const levelNorm = Math.max(0.2, ch.level / 100);
+        ch.harmonics.forEach((harm, hi) => {
+          const harmonicN = hi + 2;
+          const harmonicFreq = 100 * harmonicN; // pseudo fundamental for display map
+          const xNorm = Math.log10(harmonicFreq / minF) / Math.log10(maxF / minF);
+          const center = Math.max(0, Math.min(bins - 1, Math.round(xNorm * (bins - 1))));
+
+          const intensity = Math.min(1, harm * 2.6 * levelNorm + ch.thd * 0.4);
+          const spread = Math.max(1, Math.round((bins / 28) * (1 - harmonicFreq / nyquist + 0.25)));
+
+          for (let o = -spread; o <= spread; o++) {
+            const idx = center + o;
+            if (idx < 0 || idx >= bins) continue;
+            const falloff = 1 - Math.abs(o) / (spread + 1);
+            binEnergy[idx] = Math.min(1, binEnergy[idx] + intensity * falloff * 0.55);
+          }
+        });
+      });
+
+      // Draw bars with color intensity by frequency and magnitude
+      for (let i = 0; i < bins; i++) {
+        const energy = binEnergy[i];
+        if (energy <= 0.01) continue;
+
+        const x = i * binW;
+        const barH = Math.max(1, energy * spectrumH);
+        const xPosNorm = i / (bins - 1);
+
+        const hue = 220 - xPosNorm * 220; // blue -> red
+        const sat = 90;
+        const light = 45 + energy * 12;
+        const color = `hsl(${hue}, ${sat}%, ${light}%)`;
+
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 6;
+        ctx.fillRect(x + 0.4, spectrumH - barH, Math.max(1, binW - 1), barH);
+      }
+      ctx.shadowBlur = 0;
+
+      // Overlay smooth contour line
+      if (activeChannels.length > 0) {
+        ctx.beginPath();
+        binEnergy.forEach((energy, i) => {
+          const x = i * binW + binW * 0.5;
+          const y = spectrumH - energy * spectrumH;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.strokeStyle = "#e2e8f070";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+
+      // Bottom legend
+      ctx.fillStyle = "#6b7280";
+      ctx.font = "6px monospace";
+      ctx.textAlign = "left";
+      ctx.fillText("20Hz", 2, h - 3);
+      ctx.textAlign = "center";
+      ctx.fillText("200Hz", w * 0.27, h - 3);
+      ctx.fillText("2kHz", w * 0.57, h - 3);
+      ctx.fillText("20kHz", w * 0.92, h - 3);
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#94a3b8";
+      ctx.fillText("THD INTENSITY", w - 3, 7);
+
+      animRef.current = requestAnimationFrame(draw);
+    }
+
+    animRef.current = requestAnimationFrame(draw);
+    return () => {
+      running = false;
+      cancelAnimationFrame(animRef.current);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={width}
+      height={height}
+      className={className}
+    />
+  );
+}
+
+function VintageKnob({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent: string;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-2 min-w-[110px]">
+      <div
+        className="w-full rounded-md px-3 py-2 text-center font-mono"
+        style={{
+          background: "linear-gradient(180deg, #04070d 0%, #090d16 100%)",
+          border: "1px solid #0a111d",
+          boxShadow: "inset 0 1px 0 #ffffff10, 0 8px 16px #00000070",
+          color: accent,
+        }}
+      >
+        <div className="text-xl leading-none">{value}</div>
+      </div>
+      <div
+        className="w-12 h-12 rounded-full relative"
+        style={{
+          background: "radial-gradient(circle at 35% 30%, #73767f 0%, #31343d 48%, #161922 100%)",
+          border: "1px solid #0f1724",
+          boxShadow: "inset 0 1px 3px #ffffff22, 0 6px 14px #00000080",
+        }}
+      >
+        <div className="absolute left-1/2 top-[7px] -translate-x-1/2 w-[2px] h-[14px] rounded" style={{ backgroundColor: "#e5e7eb" }} />
+      </div>
+      <div className="text-[10px] tracking-wider text-neutral-400">{label}</div>
+    </div>
+  );
+}
+
 // ─── Master THD Gauge ────────────────────────────────────────────────────────
 function MasterGauge({ thd, thdN }: { thd: number; thdN: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -520,161 +724,102 @@ export default function MasterBrain({
       : 0;
 
   const masterColor = getTHDColor(masterThd);
+  const statusText =
+    masterThd > 1.0 ? "HIGH DISTORTION" : masterThd > 0.5 ? "MODERATE" : "NOMINAL";
 
   return (
     <div
-      className="rounded-xl border overflow-hidden"
+      className="rounded-2xl border overflow-hidden"
       style={{
-        backgroundColor: "#080d16",
-        borderColor: "#1a2540",
-        boxShadow: `0 0 60px #00000090, 0 0 20px ${masterColor}10, inset 0 1px 0 #ffffff08`,
+        background: "linear-gradient(180deg, #181a1f 0%, #0b0e14 100%)",
+        borderColor: "#2e333f",
+        boxShadow: `0 18px 40px #000000a0, inset 0 1px 0 #ffffff10, inset 0 -1px 0 #000000a0`,
       }}
     >
-      {/* Header */}
       <div
-        className="px-4 py-2.5 flex items-center justify-between"
+        className="px-6 py-3 flex items-center justify-between"
         style={{
-          background: "linear-gradient(180deg, #0f1929 0%, #080d16 100%)",
-          borderBottom: "1px solid #1a2540",
+          background: "linear-gradient(180deg, #3a3d43 0%, #24272f 100%)",
+          borderBottom: "1px solid #11131a",
         }}
       >
-        <div className="flex items-center gap-3">
-          <div
-            className="w-2 h-2 rounded-full animate-pulse"
-            style={{ backgroundColor: masterColor }}
-          />
-          <span className="text-xs font-bold tracking-widest text-white">
-            THD MASTER ANALYZER
-          </span>
-          <span className="text-[9px] text-neutral-600 tracking-wider">
-            MIXBUS BRAIN
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-[9px] text-neutral-600">
-            {activeChannels.length}/{channels.length} ACTIVE
-          </span>
-          {worstChannel && (
-            <div
-              className="text-[8px] font-mono px-2 py-0.5 rounded"
-              style={{
-                backgroundColor: "#ef444415",
-                color: "#ef4444",
-                border: "1px solid #ef444430",
-              }}
-            >
-              WORST: {worstChannel}
-            </div>
-          )}
-          <div
-            className="text-[9px] font-mono font-bold px-2 py-0.5 rounded"
-            style={{
-              backgroundColor: masterColor + "15",
-              color: masterColor,
-              border: `1px solid ${masterColor}30`,
-            }}
-          >
-            {masterThd.toFixed(3)}% THD
-          </div>
+        <div className="text-3xl tracking-[0.2em] text-neutral-200 font-light">THD</div>
+        <div className="text-[11px] tracking-wider text-neutral-300 font-mono">
+          {activeChannels.length}/{channels.length} ACTIVE · {statusText}
         </div>
       </div>
 
-      <div className="p-4 flex gap-5">
-        {/* Left column: Master gauge + stats */}
-        <div className="flex flex-col gap-3 items-center" style={{ minWidth: "170px" }}>
-          <MasterGauge thd={masterThd} thdN={masterThdN} />
-
-          {/* Stats grid */}
+      <div className="p-5 space-y-4">
+        <div
+          className="rounded-xl p-3"
+          style={{ background: "linear-gradient(180deg, #1f232b 0%, #11151d 100%)", border: "1px solid #080b11" }}
+        >
           <div
-            className="w-full rounded-lg p-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5"
-            style={{ backgroundColor: "#060b14", border: "1px solid #0f1929" }}
-          >
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[7px] text-neutral-600 tracking-widest">AVG THD</span>
-              <span className="text-[10px] font-mono font-bold" style={{ color: getTHDColor(avgThd) }}>
-                {avgThd.toFixed(3)}%
-              </span>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[7px] text-neutral-600 tracking-widest">MASTER</span>
-              <span className="text-[10px] font-mono font-bold" style={{ color: masterColor }}>
-                {masterThd.toFixed(3)}%
-              </span>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[7px] text-neutral-600 tracking-widest">PEAK</span>
-              <span className="text-[10px] font-mono font-bold" style={{ color: getTHDColor(maxThd) }}>
-                {maxThd.toFixed(3)}%
-              </span>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[7px] text-neutral-600 tracking-widest">FLOOR</span>
-              <span className="text-[10px] font-mono font-bold text-neutral-400">
-                {minThd.toFixed(3)}%
-              </span>
-            </div>
-            <div className="flex flex-col gap-0.5 col-span-2">
-              <span className="text-[7px] text-neutral-600 tracking-widest">THD+N</span>
-              <span className="text-[10px] font-mono font-bold text-blue-400">
-                {masterThdN.toFixed(3)}%
-              </span>
-            </div>
-          </div>
-
-          {/* Alert indicator */}
-          <div
-            className="w-full text-center text-[8px] font-bold rounded py-1 tracking-widest transition-all"
+            className="rounded-lg border p-2"
             style={{
-              backgroundColor: masterThd > 1.0 ? "#ef444420" : masterThd > 0.5 ? "#f9731620" : "#22c55e15",
-              color: masterThd > 1.0 ? "#ef4444" : masterThd > 0.5 ? "#f97316" : "#22c55e",
-              border: `1px solid ${masterThd > 1.0 ? "#ef444440" : masterThd > 0.5 ? "#f9731640" : "#22c55e30"}`,
+              background: "linear-gradient(180deg, #090d14 0%, #05080d 100%)",
+              borderColor: "#000000",
+              boxShadow: "inset 0 0 16px #000000d0",
             }}
           >
-            {masterThd > 1.0 ? "⚠ HIGH DISTORTION" : masterThd > 0.5 ? "△ MODERATE" : "✓ NOMINAL"}
+            <div className="flex items-center justify-between px-1 pb-2">
+              <span className="text-neutral-400 text-xs tracking-widest">THD</span>
+              <span className="text-[10px] font-mono" style={{ color: masterColor }}>
+                MASTER {masterThd.toFixed(3)}%
+              </span>
+            </div>
+            <THDFrequencyMap
+              channels={channels}
+              width={980}
+              height={320}
+              className="w-full rounded border border-neutral-900"
+            />
+            <div className="mt-2">
+              <THDTimeline channels={channels} masterThd={masterThd} />
+            </div>
+            <div className="mt-2">
+              <HarmonicSpectrum channels={channels} />
+            </div>
           </div>
         </div>
 
-        {/* Right column: Channel table + spectrum + timeline */}
-        <div className="flex-1 flex flex-col gap-3 min-w-0">
-          {/* Channel measurements table */}
-          <div>
-            <div className="text-[7px] text-neutral-600 mb-1.5 tracking-widest flex items-center gap-2">
-              <span>CHANNEL MEASUREMENTS</span>
-              <div className="flex-1 h-px bg-neutral-800" />
-              <span className="text-neutral-700">THD · THD+N · DOM.HARM · LEVEL</span>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+          <VintageKnob label="THD" value={avgThd.toFixed(2)} accent="#38bdf8" />
+          <VintageKnob label="INPUT" value={`${activeChannels.length}`} accent="#a3e635" />
+          <div className="flex flex-col items-center gap-2 min-w-[150px]">
+            <div
+              className="w-full rounded-md px-4 py-2 text-center font-mono"
+              style={{
+                background: "linear-gradient(180deg, #04070d 0%, #090d16 100%)",
+                border: "1px solid #0a111d",
+                boxShadow: "inset 0 1px 0 #ffffff10, 0 8px 16px #00000070",
+                color: "#22d3ee",
+              }}
+            >
+              <div className="text-4xl leading-none">{masterThd.toFixed(1)}%</div>
             </div>
-            <ChannelTable channels={channels} />
+            <div className="text-[12px] tracking-wider text-neutral-300">OUTPUT</div>
           </div>
+          <div className="hidden md:flex justify-center">
+            <MasterGauge thd={masterThd} thdN={masterThdN} />
+          </div>
+          <VintageKnob label="SCALE" value={maxThd.toFixed(1)} accent="#22d3ee" />
+        </div>
 
-          {/* Harmonic spectrum */}
-          <div>
-            <div className="text-[7px] text-neutral-600 mb-1.5 tracking-widest flex items-center gap-2">
-              <span>HARMONIC SPECTRUM (H2–H8)</span>
-              <div className="flex-1 h-px bg-neutral-800" />
-              <div className="flex gap-2">
-                {channels.slice(0, 6).map((ch) => (
-                  <div key={ch.id} className="flex items-center gap-1">
-                    <div
-                      className="w-1.5 h-1.5 rounded-full"
-                      style={{ backgroundColor: ch.color }}
-                    />
-                    <span className="text-[6px] text-neutral-700">{ch.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <HarmonicSpectrum channels={channels} />
-          </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px] font-mono">
+          <div className="rounded px-2 py-1 bg-black/30 border border-neutral-900 text-neutral-300">THD+N: <span className="text-blue-300">{masterThdN.toFixed(3)}%</span></div>
+          <div className="rounded px-2 py-1 bg-black/30 border border-neutral-900 text-neutral-300">AVG: <span style={{ color: getTHDColor(avgThd) }}>{avgThd.toFixed(3)}%</span></div>
+          <div className="rounded px-2 py-1 bg-black/30 border border-neutral-900 text-neutral-300">FLOOR: <span className="text-neutral-400">{minThd.toFixed(3)}%</span></div>
+          <div className="rounded px-2 py-1 bg-black/30 border border-neutral-900 text-neutral-300">WORST: <span className="text-red-400">{worstChannel ?? "--"}</span></div>
+        </div>
 
-          {/* THD timeline */}
-          <div>
-            <div className="text-[7px] text-neutral-600 mb-1.5 tracking-widest flex items-center gap-2">
-              <span>THD HISTORY (12s)</span>
-              <div className="flex-1 h-px bg-neutral-800" />
-              <span className="text-neutral-700">— MASTER &nbsp; — CHANNELS</span>
-            </div>
-            <THDTimeline channels={channels} masterThd={masterThd} />
+        <div>
+          <div className="text-[9px] text-neutral-500 mb-1.5 tracking-widest flex items-center gap-2">
+            <span>CHANNEL MEASUREMENTS</span>
+            <div className="flex-1 h-px bg-neutral-800" />
+            <span className="text-neutral-700">THD · THD+N · DOM.HARM · LEVEL</span>
           </div>
+          <ChannelTable channels={channels} />
         </div>
       </div>
     </div>
