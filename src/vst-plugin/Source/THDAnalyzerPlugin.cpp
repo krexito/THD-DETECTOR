@@ -6,6 +6,9 @@
 #include "THDAnalyzerPluginEditor.h"
 #include <algorithm>
 
+std::array<THDAnalyzerPlugin::SharedChannelState, THDAnalyzerPlugin::maxDynamicChannels> THDAnalyzerPlugin::sharedChannelStates {};
+juce::SpinLock THDAnalyzerPlugin::sharedChannelStatesLock;
+
 THDAnalyzerPlugin::THDAnalyzerPlugin()
     : AudioProcessor (BusesProperties()
                     #if ! JucePlugin_IsMidiEffect
@@ -194,6 +197,65 @@ void THDAnalyzerPlugin::sendTHDDataToMaster (const FFTAnalyzer::AnalysisResult& 
     midiOutputBuffer.addEvent (midiMsg, 0);
 }
 
+void THDAnalyzerPlugin::publishSharedChannelData (const FFTAnalyzer::AnalysisResult& analysis, float peakLevel)
+{
+    if (getPluginMode() != PluginMode::ChannelStrip)
+        return;
+
+    const auto channelId = getChannelId();
+    if (! juce::isPositiveAndBelow (channelId, maxDynamicChannels))
+        return;
+
+    const juce::SpinLock::ScopedLockType lock (sharedChannelStatesLock);
+    auto& shared = sharedChannelStates[static_cast<size_t> (channelId)];
+    shared.thd = analysis.thd;
+    shared.thdN = analysis.thdN;
+    shared.level = analysis.level;
+    shared.peakLevel = peakLevel;
+    for (size_t i = 0; i < shared.harmonics.size(); ++i)
+        shared.harmonics[i] = i < analysis.harmonics.size() ? analysis.harmonics[i] : 0.0f;
+
+    ++shared.sequence;
+    shared.active = true;
+}
+
+void THDAnalyzerPlugin::ingestSharedChannelData()
+{
+    if (getPluginMode() != PluginMode::MasterBrain)
+        return;
+
+    const juce::SpinLock::ScopedLockType sharedLock (sharedChannelStatesLock);
+
+    for (int channelId = 0; channelId < maxDynamicChannels; ++channelId)
+    {
+        const auto& shared = sharedChannelStates[static_cast<size_t> (channelId)];
+        if (! shared.active || shared.sequence == 0)
+            continue;
+
+        ensureChannelExists (channelId);
+
+        const juce::SpinLock::ScopedLockType lock (analysisDataLock);
+        auto it = std::find_if (channels.begin(), channels.end(), [channelId] (const ChannelData& c)
+        {
+            return c.channelId == channelId;
+        });
+
+        if (it == channels.end())
+            continue;
+
+        auto& channel = *it;
+        channel.thd = shared.thd;
+        channel.thdN = shared.thdN;
+        channel.level = shared.level;
+        channel.peakLevel = shared.peakLevel;
+        channel.active = true;
+        channel.lastUpdateSeconds = internalClockSeconds;
+
+        for (size_t i = 0; i < channel.harmonics.size() && i < shared.harmonics.size(); ++i)
+            channel.harmonics[i] = shared.harmonics[i];
+    }
+}
+
 void THDAnalyzerPlugin::receiveTHDData (const juce::MidiMessage& midi)
 {
     if (getPluginMode() != PluginMode::MasterBrain)
@@ -248,6 +310,7 @@ void THDAnalyzerPlugin::reset()
     }
     fifoWritePosition = 0;
     fifoFilled = false;
+    analysisSamplesSinceLastRun = 0;
     internalClockSeconds = 0.0;
     midiOutputBuffer.clear();
 
@@ -356,8 +419,14 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
 
     pushSamplesToAnalysisFifo (monoBufferScratch);
 
-    if (fifoFilled)
+    const bool shouldAnalyzeAudio = getPluginMode() == PluginMode::ChannelStrip;
+    if (shouldAnalyzeAudio)
+        analysisSamplesSinceLastRun += numSamples;
+
+    if (shouldAnalyzeAudio && fifoFilled && analysisSamplesSinceLastRun >= analysisHopSize)
     {
+        analysisSamplesSinceLastRun = 0;
+
         for (int i = 0; i < FFTAnalyzer::fftSize; ++i)
         {
             const int index = (fifoWritePosition + i) % FFTAnalyzer::fftSize;
@@ -375,6 +444,7 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     {
         const auto analysisForMidi = getLastAnalysisResult();
         sendTHDDataToMaster (analysisForMidi, peakLevel);
+        publishSharedChannelData (analysisForMidi, peakLevel);
 
         midiMessages.clear();
         midiMessages.addEvents (midiOutputBuffer, 0, numSamples, 0);
@@ -385,6 +455,7 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         for (const auto metadata : midiMessages)
             receiveTHDData (metadata.getMessage());
 
+        ingestSharedChannelData();
         pruneStaleChannels();
         midiMessages.clear();
     }
