@@ -820,8 +820,9 @@ void THDAnalyzerPluginEditor::paint (juce::Graphics& g)
     g.setColour (juce::Colours::white.withAlpha (0.35f));
     g.setFont (makeMonoFont (8.0f, true));
     g.drawText ("STATUS", rightHeader.removeFromTop (10), juce::Justification::centredRight);
-    g.setColour (ColorPalette::low.withAlpha (0.92f));
-    g.drawText ("MONITORING", rightHeader, juce::Justification::centredRight);
+    const auto lowConfidence = latestAnalysisConfidence < 0.1f;
+    g.setColour ((lowConfidence ? ColorPalette::mediumHigh : ColorPalette::low).withAlpha (0.92f));
+    g.drawText (lowConfidence ? "LOW CONF" : "MONITORING", rightHeader, juce::Justification::centredRight);
 
     auto sectionLabelsY = 362;
     g.setColour (juce::Colours::white.withAlpha (0.45f));
@@ -830,11 +831,14 @@ void THDAnalyzerPluginEditor::paint (juce::Graphics& g)
     g.drawText (isMasterMode ? "CHANNEL MEASUREMENTS" : "LOCAL CHANNEL METRICS", 400, sectionLabelsY, 220, 14, juce::Justification::centredLeft);
     g.drawText ("HARMONIC SPECTRUM", 764, sectionLabelsY, 220, 14, juce::Justification::centredLeft);
 
+    const auto masterThdText = hasSeenValidAnalysis ? ("MASTER " + juce::String (smoothedMasterThd, 2) + "%") : juce::String ("MASTER --");
+    const auto masterThdNText = hasSeenValidAnalysis ? ("THD+N " + juce::String (smoothedMasterThdN, 2) + "%") : juce::String ("THD+N --");
+
     g.setColour (juce::Colours::white.withAlpha (0.82f));
     g.setFont (makeMonoFont (9.0f));
-    g.drawText ("MASTER " + juce::String (smoothedMasterThd, 2) + "%", 36, 514, 164, 14, juce::Justification::centredLeft);
+    g.drawText (masterThdText, 36, 514, 164, 14, juce::Justification::centredLeft);
     g.setColour (ColorPalette::clean.withAlpha (0.9f));
-    g.drawText ("THD+N " + juce::String (smoothedMasterThdN, 2) + "%", 36, 532, 164, 14, juce::Justification::centredLeft);
+    g.drawText (masterThdNText, 36, 532, 164, 14, juce::Justification::centredLeft);
 
     const auto peakChannel = std::max_element (channels.begin(), channels.end(), [] (const ChannelData& a, const ChannelData& b)
     {
@@ -907,6 +911,15 @@ void THDAnalyzerPluginEditor::resized()
     historyTimelineDisplay->setBounds (rightX, contentTop + 142, columnWidth, 80);
 }
 
+float THDAnalyzerPluginEditor::applyBallistics (float input, float previous, double dtSeconds, double attackTauSeconds, double releaseTauSeconds)
+{
+    const auto clampedDt = juce::jmax (1.0e-4, dtSeconds);
+    const auto useAttack = input > previous;
+    const auto tau = juce::jmax (1.0e-4, useAttack ? attackTauSeconds : releaseTauSeconds);
+    const auto coeff = std::exp (-clampedDt / tau);
+    return input + (previous - input) * static_cast<float> (coeff);
+}
+
 void THDAnalyzerPluginEditor::timerCallback()
 {
     if (! processor.isEditorDataReady())
@@ -943,34 +956,50 @@ void THDAnalyzerPluginEditor::timerCallback()
     const auto measuredThd = juce::jlimit (0.0f, 100.0f, analysis.thd);
     const auto measuredThdN = juce::jlimit (0.0f, 100.0f, analysis.thdN);
     const auto measuredFloor = juce::jlimit (0.0f, 1.0f, analysis.noiseFloor);
-    const auto gatedTargetThdN = analysis.level < 0.001f ? 0.0f : measuredThdN;
 
-    const bool fastMode = displaySpeed == DisplaySpeed::fast;
-    const auto attack = fastMode ? 0.38f : 0.12f;
-    const auto release = fastMode ? 0.24f : 0.06f;
+    const auto nowMs = juce::Time::getMillisecondCounterHiRes();
+    double dtSeconds = 1.0 / 20.0;
+    if (lastTimerCallbackMs > 0.0)
+        dtSeconds = (nowMs - lastTimerCallbackMs) / 1000.0;
+    lastTimerCallbackMs = nowMs;
 
-    const auto smoothing = gatedTargetThdN > smoothedMasterThdN ? attack : release;
-    smoothedMasterThdN += (gatedTargetThdN - smoothedMasterThdN) * smoothing;
-    smoothedAverageThd += (averageThd - smoothedAverageThd) * (fastMode ? 0.34f : 0.11f);
-    smoothedMasterThd += (measuredThd - smoothedMasterThd) * (fastMode ? 0.34f : 0.11f);
-    smoothedPeak += (maxPeak - smoothedPeak) * (fastMode ? 0.42f : 0.12f);
-    smoothedNoiseFloor += (measuredFloor - smoothedNoiseFloor) * (fastMode ? 0.32f : 0.10f);
+    latestAnalysisConfidence = juce::jlimit (0.0f, 1.0f, analysis.analysisConfidence);
+    const bool analysisValid = analysis.fundamentalValid;
+    if (analysisValid)
+    {
+        lastValidMasterThd = measuredThd;
+        lastValidMasterThdN = measuredThdN;
+        hasSeenValidAnalysis = true;
+    }
+
+    const auto targetMasterThd = hasSeenValidAnalysis ? lastValidMasterThd : 0.0f;
+    const auto targetMasterThdN = hasSeenValidAnalysis ? lastValidMasterThdN : 0.0f;
+
+    // Ballistics are GUI-only so DSP math stays untouched while the display becomes readable.
+    constexpr double attackTauSeconds = 0.120;
+    constexpr double releaseTauSeconds = 0.700;
+    smoothedMasterThdN = applyBallistics (targetMasterThdN, smoothedMasterThdN, dtSeconds, attackTauSeconds, releaseTauSeconds);
+    smoothedMasterThd = applyBallistics (targetMasterThd, smoothedMasterThd, dtSeconds, attackTauSeconds, releaseTauSeconds);
+    smoothedAverageThd = applyBallistics (averageThd, smoothedAverageThd, dtSeconds, attackTauSeconds, releaseTauSeconds);
+    smoothedPeak = applyBallistics (maxPeak, smoothedPeak, dtSeconds, 0.090, 0.500);
+    smoothedNoiseFloor = applyBallistics (measuredFloor, smoothedNoiseFloor, dtSeconds, 0.200, 0.800);
 
     if (smoothedHarmonics.size() != analysis.harmonics.size())
         smoothedHarmonics.assign (analysis.harmonics.size(), 0.0f);
 
-    const auto harmonicSmoothing = fastMode ? 0.42f : 0.12f;
     for (size_t i = 0; i < smoothedHarmonics.size(); ++i)
     {
-        const auto target = juce::jlimit (0.0f, 1.0f, analysis.harmonics[i]);
-        smoothedHarmonics[i] += (target - smoothedHarmonics[i]) * harmonicSmoothing;
+        const auto target = analysisValid ? juce::jlimit (0.0f, 1.0f, analysis.harmonics[i]) : smoothedHarmonics[i];
+        smoothedHarmonics[i] = applyBallistics (target, smoothedHarmonics[i], dtSeconds, attackTauSeconds, releaseTauSeconds);
     }
+
+    processor.publishDisplayOutboundValues (smoothedMasterThd, smoothedMasterThdN);
 
     masterGaugeDisplay->setValue (smoothedMasterThdN);
     masterGaugeDisplay->setTooltip ("THD+N " + juce::String (smoothedMasterThdN, 2) + "% (smoothed)");
 
     harmonicSpectrumDisplay->setData (smoothedHarmonics, analysis.fundamentalFrequency);
-    harmonicSpectrumDisplay->setTooltip ("Fundamental " + juce::String (analysis.fundamentalFrequency, 1) + " Hz");
+    harmonicSpectrumDisplay->setTooltip ("Fundamental " + juce::String (analysis.fundamentalFrequency, 1) + " Hz | Confidence " + juce::String (latestAnalysisConfidence, 2));
 
     historyTimelineDisplay->pushValue (smoothedMasterThdN);
     historyTimelineDisplay->setTooltip ("Noise floor " + juce::String (smoothedNoiseFloor, 5));

@@ -267,17 +267,17 @@ void THDAnalyzerPlugin::pushAnalysisSnapshotForEditor (const FFTAnalyzer::Analys
     }
 }
 
-void THDAnalyzerPlugin::updateOutboundParameters (const FFTAnalyzer::AnalysisResult& analysis)
+void THDAnalyzerPlugin::updateOutboundParameters (float smoothedThd, float smoothedThdN)
 {
     const auto nowMs = juce::Time::getMillisecondCounterHiRes();
-    const auto clampedThd = juce::jlimit (0.0f, 100.0f, analysis.thd);
-    const auto clampedThdN = juce::jlimit (0.0f, 100.0f, analysis.thdN);
+    const auto clampedThd = juce::jlimit (0.0f, 100.0f, smoothedThd);
+    const auto clampedThdN = juce::jlimit (0.0f, 100.0f, smoothedThdN);
 
     const auto shouldPublishByTime = (nowMs - lastOutboundPublishMs) >= outboundPublishIntervalMs;
     const auto hasSignificantChange = std::abs (clampedThd - lastPublishedThd) >= outboundPublishDeltaThreshold
         || std::abs (clampedThdN - lastPublishedThdN) >= outboundPublishDeltaThreshold;
 
-    if (! shouldPublishByTime && ! hasSignificantChange)
+    if (! shouldPublishByTime || ! hasSignificantChange)
         return;
 
     if (auto* thdParameter = state.getParameter ("thdOutbound"))
@@ -289,6 +289,11 @@ void THDAnalyzerPlugin::updateOutboundParameters (const FFTAnalyzer::AnalysisRes
     lastPublishedThd = clampedThd;
     lastPublishedThdN = clampedThdN;
     lastOutboundPublishMs = nowMs;
+}
+
+void THDAnalyzerPlugin::publishDisplayOutboundValues (float thd, float thdN)
+{
+    updateOutboundParameters (thd, thdN);
 }
 
 
@@ -403,8 +408,9 @@ void THDAnalyzerPlugin::receiveTHDData (const juce::MidiMessage& midi)
         channel.harmonics[i] = msg.harmonics[i];
 }
 
-void THDAnalyzerPlugin::prepareToPlay (double, int)
+void THDAnalyzerPlugin::prepareToPlay (double sampleRate, int)
 {
+    snapshotIntervalSamples = juce::jmax (1, static_cast<int> (sampleRate / static_cast<double> (targetSnapshotRateHz)));
     editorDataReady.store (false, std::memory_order_release);
     reset();
     editorDataReady.store (true, std::memory_order_release);
@@ -424,6 +430,7 @@ void THDAnalyzerPlugin::reset()
     fifoWritePosition = 0;
     fifoFilled = false;
     analysisSamplesSinceLastRun = 0;
+    samplesSinceLastSnapshotPush = 0;
     internalClockSeconds = 0.0;
     midiOutputBuffer.clear();
     consumedSharedSequences.fill (0);
@@ -569,12 +576,31 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         }
 
         const auto analysis = fftAnalyzer.analyze (orderedSamplesScratch.data(), FFTAnalyzer::fftSize, static_cast<float> (getSampleRate()));
-        realtimeAnalysisCache = analysis;
-        pushAnalysisSnapshotForEditor (analysis);
-        updateOutboundParameters (analysis);
+
+        // Keep internal analysis continuous, but freeze THD/THD+N when fundamental confidence is too low.
+        auto displayAnalysis = realtimeAnalysisCache;
+        if (analysis.fundamentalValid)
+            displayAnalysis = analysis;
+
+        displayAnalysis.level = analysis.level;
+        displayAnalysis.fundamentalFrequency = analysis.fundamentalFrequency;
+        displayAnalysis.noiseFloor = analysis.noiseFloor;
+        displayAnalysis.analysisConfidence = analysis.analysisConfidence;
+        displayAnalysis.fundamentalValid = analysis.fundamentalValid;
+
+        realtimeAnalysisCache = displayAnalysis;
+        samplesSinceLastSnapshotPush += analysisHopSize;
+
+        // Rate-limit audio->GUI snapshots to keep meter updates legible and reduce visual jitter.
+        if (samplesSinceLastSnapshotPush >= snapshotIntervalSamples)
+        {
+            pushAnalysisSnapshotForEditor (displayAnalysis);
+            samplesSinceLastSnapshotPush = 0;
+        }
+
         {
             const juce::SpinLock::ScopedLockType lock (analysisDataLock);
-            lastAnalysis = analysis;
+            lastAnalysis = displayAnalysis;
         }
     }
 

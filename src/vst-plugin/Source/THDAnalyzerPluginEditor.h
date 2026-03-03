@@ -16,6 +16,8 @@ public:
 private:
     void timerCallback() override;
 
+    static float applyBallistics (float input, float previous, double dtSeconds, double attackTauSeconds, double releaseTauSeconds);
+
     class HeaderBar;
     class ChannelCard;
     class ProgressBarRow;
@@ -63,6 +65,11 @@ private:
     float smoothedMasterThd = 0.0f;
     float smoothedPeak = 0.0f;
     float smoothedNoiseFloor = 0.0f;
+    float lastValidMasterThd = 0.0f;
+    float lastValidMasterThdN = 0.0f;
+    float latestAnalysisConfidence = 0.0f;
+    bool hasSeenValidAnalysis = false;
+    double lastTimerCallbackMs = 0.0;
     std::vector<float> smoothedHarmonics = std::vector<float> (7, 0.0f);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (THDAnalyzerPluginEditor)
