@@ -6,7 +6,7 @@ import { useEffect, useRef } from "react";
 export class FFTAnalyzer {
   private audioContext: AudioContext | null = null;
   private analyserNode: AnalyserNode | null = null;
-  private oscillators: Map<string, OscillatorNode> = new Map();
+  private oscillators: Map<string, OscillatorNode[]> = new Map();
   private gains: Map<string, GainNode> = new Map();
 
   constructor() {
@@ -53,7 +53,7 @@ export class FFTAnalyzer {
     oscillator.start();
     detune.start();
     
-    this.oscillators.set(channelId, oscillator);
+    this.oscillators.set(channelId, [oscillator, detune]);
     this.gains.set(channelId, gainNode);
   }
 
@@ -67,9 +67,9 @@ export class FFTAnalyzer {
 
   // Stop signal for a channel
   stopSignal(channelId: string): void {
-    const oscillator = this.oscillators.get(channelId);
-    if (oscillator) {
-      oscillator.stop();
+    const oscillators = this.oscillators.get(channelId);
+    if (oscillators) {
+      oscillators.forEach((oscillator) => oscillator.stop());
       this.oscillators.delete(channelId);
     }
     const gain = this.gains.get(channelId);
@@ -219,7 +219,9 @@ export class FFTAnalyzer {
 
   // Cleanup
   dispose(): void {
-    this.oscillators.forEach(osc => osc.stop());
+    this.oscillators.forEach((oscillators) =>
+      oscillators.forEach((oscillator) => oscillator.stop())
+    );
     this.oscillators.clear();
     this.gains.forEach(gain => gain.disconnect());
     this.gains.clear();
