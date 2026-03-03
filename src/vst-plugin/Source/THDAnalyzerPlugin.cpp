@@ -307,6 +307,7 @@ void THDAnalyzerPlugin::reset()
     {
         const juce::SpinLock::ScopedLockType lock (analysisDataLock);
         lastAnalysis = FFTAnalyzer::AnalysisResult {};
+        realtimeAnalysisCache = FFTAnalyzer::AnalysisResult {};
     }
     fifoWritePosition = 0;
     fifoFilled = false;
@@ -357,10 +358,25 @@ bool THDAnalyzerPlugin::isBusesLayoutSupported (const BusesLayout& layouts) cons
 
 void THDAnalyzerPlugin::pushSamplesToAnalysisFifo (const std::vector<float>& monoBuffer)
 {
-    for (const auto sample : monoBuffer)
+    if (monoBuffer.empty())
+        return;
+
+    size_t srcOffset = 0;
+    size_t samplesRemaining = monoBuffer.size();
+
+    while (samplesRemaining > 0)
     {
-        analysisFifo[static_cast<size_t> (fifoWritePosition)] = sample;
-        fifoWritePosition = (fifoWritePosition + 1) % FFTAnalyzer::fftSize;
+        const auto writePos = static_cast<size_t> (fifoWritePosition);
+        const auto contiguousSpace = static_cast<size_t> (FFTAnalyzer::fftSize) - writePos;
+        const auto chunkSize = std::min (samplesRemaining, contiguousSpace);
+
+        std::copy_n (monoBuffer.data() + srcOffset,
+                     chunkSize,
+                     analysisFifo.begin() + static_cast<int> (writePos));
+
+        srcOffset += chunkSize;
+        samplesRemaining -= chunkSize;
+        fifoWritePosition = static_cast<int> ((writePos + chunkSize) % static_cast<size_t> (FFTAnalyzer::fftSize));
 
         if (fifoWritePosition == 0)
             fifoFilled = true;
@@ -419,7 +435,8 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
 
     pushSamplesToAnalysisFifo (monoBufferScratch);
 
-    const bool shouldAnalyzeAudio = getPluginMode() == PluginMode::ChannelStrip;
+    const auto pluginMode = getPluginMode();
+    const bool shouldAnalyzeAudio = pluginMode == PluginMode::ChannelStrip;
     if (shouldAnalyzeAudio)
         analysisSamplesSinceLastRun += numSamples;
 
@@ -434,23 +451,23 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         }
 
         const auto analysis = fftAnalyzer.analyze (orderedSamplesScratch.data(), FFTAnalyzer::fftSize, static_cast<float> (getSampleRate()));
+        realtimeAnalysisCache = analysis;
         {
             const juce::SpinLock::ScopedLockType lock (analysisDataLock);
             lastAnalysis = analysis;
         }
     }
 
-    if (getPluginMode() == PluginMode::ChannelStrip)
+    if (pluginMode == PluginMode::ChannelStrip)
     {
-        const auto analysisForMidi = getLastAnalysisResult();
-        sendTHDDataToMaster (analysisForMidi, peakLevel);
-        publishSharedChannelData (analysisForMidi, peakLevel);
+        sendTHDDataToMaster (realtimeAnalysisCache, peakLevel);
+        publishSharedChannelData (realtimeAnalysisCache, peakLevel);
 
         midiMessages.clear();
         midiMessages.addEvents (midiOutputBuffer, 0, numSamples, 0);
         midiOutputBuffer.clear();
     }
-    else if (getPluginMode() == PluginMode::MasterBrain)
+    else if (pluginMode == PluginMode::MasterBrain)
     {
         for (const auto metadata : midiMessages)
             receiveTHDData (metadata.getMessage());
