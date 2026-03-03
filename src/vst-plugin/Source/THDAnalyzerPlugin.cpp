@@ -4,6 +4,7 @@
 
 #include "THDAnalyzerPlugin.h"
 #include "THDAnalyzerPluginEditor.h"
+#include <algorithm>
 
 THDAnalyzerPlugin::THDAnalyzerPlugin()
     : AudioProcessor (BusesProperties()
@@ -21,16 +22,7 @@ THDAnalyzerPlugin::THDAnalyzerPlugin()
     state.addParameterListener ("pluginMode", this);
     state.addParameterListener ("channelId", this);
 
-    channels = {
-        { 0, "KICK", juce::Colours::red },
-        { 1, "SNARE", juce::Colours::orange },
-        { 2, "BASS", juce::Colours::yellow },
-        { 3, "GTR L", juce::Colours::green },
-        { 4, "GTR R", juce::Colours::cyan },
-        { 5, "KEYS", juce::Colours::blue },
-        { 6, "VOX", juce::Colours::purple },
-        { 7, "FX BUS", juce::Colours::pink }
-    };
+    channels.clear();
 
     for (size_t i = 0; i < channels.size(); ++i)
     {
@@ -67,7 +59,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout THDAnalyzerPlugin::createPar
         juce::ParameterID { "channelId", 1 },
         "Channel ID",
         0,
-        7,
+        maxDynamicChannels - 1,
         0));
 
     for (int i = 0; i < 8; ++i)
@@ -119,7 +111,7 @@ void THDAnalyzerPlugin::syncCachedParametersFromState()
         cachedPluginMode.store (juce::jlimit (0, 1, static_cast<int> (pluginModeParamValue->load())), std::memory_order_release);
 
     if (channelIdParamValue != nullptr)
-        cachedChannelId.store (juce::jlimit (0, 7, static_cast<int> (channelIdParamValue->load())), std::memory_order_release);
+        cachedChannelId.store (juce::jlimit (0, maxDynamicChannels - 1, static_cast<int> (channelIdParamValue->load())), std::memory_order_release);
 
     const juce::SpinLock::ScopedLockType lock (analysisDataLock);
     for (size_t i = 0; i < channels.size(); ++i)
@@ -149,15 +141,14 @@ PluginMode THDAnalyzerPlugin::getPluginMode() const
 
 void THDAnalyzerPlugin::setChannelId (int id)
 {
-    if (juce::isPositiveAndBelow (id, static_cast<int> (channels.size())))
+    if (juce::isPositiveAndBelow (id, maxDynamicChannels))
     {
         if (auto* channelParam = state.getParameter ("channelId"))
             channelParam->setValueNotifyingHost (state.getParameterRange ("channelId").convertTo0to1 (static_cast<float> (id)));
 
         cachedChannelId.store (id, std::memory_order_release);
 
-        const juce::SpinLock::ScopedLockType lock (analysisDataLock);
-        channels[0].channelId = id;
+        ensureChannelExists (id);
     }
 }
 
@@ -212,15 +203,27 @@ void THDAnalyzerPlugin::receiveTHDData (const juce::MidiMessage& midi)
     if (! msg.fromMidiBytes (midi))
         return;
 
-    if (! juce::isPositiveAndBelow (msg.channelId, static_cast<int> (channels.size())))
+    if (msg.channelId < 0 || msg.channelId >= maxDynamicChannels)
         return;
 
+    ensureChannelExists (msg.channelId);
+
     const juce::SpinLock::ScopedLockType lock (analysisDataLock);
-    auto& channel = channels[static_cast<size_t> (msg.channelId)];
+    auto it = std::find_if (channels.begin(), channels.end(), [&msg] (const ChannelData& c)
+    {
+        return c.channelId == msg.channelId;
+    });
+
+    if (it == channels.end())
+        return;
+
+    auto& channel = *it;
     channel.thd = msg.thd;
     channel.thdN = msg.thdN;
     channel.level = msg.level;
     channel.peakLevel = msg.peakLevel;
+    channel.active = true;
+    channel.lastUpdateSeconds = internalClockSeconds;
 
     for (size_t i = 0; i < channel.harmonics.size() && i < msg.harmonics.size(); ++i)
         channel.harmonics[i] = msg.harmonics[i];
@@ -245,6 +248,7 @@ void THDAnalyzerPlugin::reset()
     }
     fifoWritePosition = 0;
     fifoFilled = false;
+    internalClockSeconds = 0.0;
     midiOutputBuffer.clear();
 
     {
@@ -255,6 +259,8 @@ void THDAnalyzerPlugin::reset()
             channel.thdN = 0.0;
             channel.level = 0.0;
             channel.peakLevel = 0.0;
+            channel.active = false;
+            channel.lastUpdateSeconds = 0.0;
             std::fill (channel.harmonics.begin(), channel.harmonics.end(), 0.0);
         }
     }
@@ -325,6 +331,9 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     const auto numSamples = buffer.getNumSamples();
     ensureScratchBuffers (numSamples);
 
+    if (const auto sr = getSampleRate(); sr > 0.0)
+        internalClockSeconds += static_cast<double> (numSamples) / sr;
+
     float peakLevel = 0.0f;
 
     for (int channel = 0; channel < totalNumInputChannels; ++channel)
@@ -376,6 +385,7 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         for (const auto metadata : midiMessages)
             receiveTHDData (metadata.getMessage());
 
+        pruneStaleChannels();
         midiMessages.clear();
     }
 }
@@ -383,6 +393,78 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
 bool THDAnalyzerPlugin::hasEditor() const
 {
     return true;
+}
+
+
+void THDAnalyzerPlugin::removeChannel (int id)
+{
+    const juce::SpinLock::ScopedLockType lock (analysisDataLock);
+    channels.erase (std::remove_if (channels.begin(), channels.end(), [id] (const ChannelData& c)
+    {
+        return c.channelId == id;
+    }), channels.end());
+}
+
+juce::Colour THDAnalyzerPlugin::colorForChannelId (int channelId)
+{
+    static const std::array<juce::Colour, 10> palette {
+        juce::Colour::fromString ("fff97316"),
+        juce::Colour::fromString ("ff60a5fa"),
+        juce::Colour::fromString ("ffa78bfa"),
+        juce::Colour::fromString ("ff34d399"),
+        juce::Colour::fromString ("ff2dd4bf"),
+        juce::Colour::fromString ("fffbbf24"),
+        juce::Colour::fromString ("fff472b6"),
+        juce::Colour::fromString ("ff94a3b8"),
+        juce::Colour::fromString ("ff38bdf8"),
+        juce::Colour::fromString ("fffb923c")
+    };
+
+    const auto index = static_cast<size_t> (juce::jmax (0, channelId)) % palette.size();
+    return palette[index];
+}
+
+juce::String THDAnalyzerPlugin::defaultChannelNameForId (int channelId)
+{
+    return "CH " + juce::String (channelId + 1);
+}
+
+void THDAnalyzerPlugin::ensureChannelExists (int channelId)
+{
+    if (channelId < 0 || channelId >= maxDynamicChannels)
+        return;
+
+    const juce::SpinLock::ScopedLockType lock (analysisDataLock);
+
+    const auto it = std::find_if (channels.begin(), channels.end(), [channelId] (const ChannelData& c)
+    {
+        return c.channelId == channelId;
+    });
+
+    if (it != channels.end())
+        return;
+
+    ChannelData channel (channelId, defaultChannelNameForId (channelId), colorForChannelId (channelId));
+    channel.active = true;
+    channel.lastUpdateSeconds = internalClockSeconds;
+    channels.push_back (std::move (channel));
+
+    std::sort (channels.begin(), channels.end(), [] (const ChannelData& a, const ChannelData& b)
+    {
+        return a.channelId < b.channelId;
+    });
+}
+
+void THDAnalyzerPlugin::pruneStaleChannels()
+{
+    const juce::SpinLock::ScopedLockType lock (analysisDataLock);
+    channels.erase (std::remove_if (channels.begin(), channels.end(), [this] (const ChannelData& c)
+    {
+        if (! c.active)
+            return false;
+
+        return (internalClockSeconds - c.lastUpdateSeconds) > channelStaleTimeoutSeconds;
+    }), channels.end());
 }
 
 juce::AudioProcessorEditor* THDAnalyzerPlugin::createEditor()
@@ -471,7 +553,7 @@ bool THDAnalyzerPlugin::restoreLegacyStateIfNeeded (const juce::XmlElement& xml)
     else if (modeText == "channelstrip")
         setPluginMode (PluginMode::ChannelStrip);
 
-    const auto legacyChannelId = juce::jlimit (0, 7, xml.getIntAttribute ("channelId", getChannelId()));
+    const auto legacyChannelId = juce::jlimit (0, maxDynamicChannels - 1, xml.getIntAttribute ("channelId", getChannelId()));
     setChannelId (legacyChannelId);
 
     forEachXmlChildElementWithTagName (xml, channelXml, "channel")

@@ -25,6 +25,7 @@ private:
     class HistoryTimelineDisplay;
 
     void configureModeControls();
+    void rebuildChannelCards();
 
     THDAnalyzerPlugin& processor;
 

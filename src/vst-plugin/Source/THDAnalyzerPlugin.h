@@ -159,6 +159,8 @@ struct ChannelData
     std::vector<double> harmonics = std::vector<double> (7, 0.0);
     bool muted = false;
     bool soloed = false;
+    bool active = false;
+    double lastUpdateSeconds = 0.0;
     juce::Colour channelColor;
 
     ChannelData() = default;
@@ -272,6 +274,11 @@ public:
 
     void sendTHDDataToMaster (const FFTAnalyzer::AnalysisResult& analysis, float peakLevel);
     void receiveTHDData (const juce::MidiMessage& midi);
+    void removeChannel (int id);
+    void ensureChannelExists (int channelId);
+
+    static constexpr int maxDynamicChannels = 64;
+
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void reset() override;
@@ -335,7 +342,13 @@ private:
     bool fifoFilled = false;
 
     std::vector<ChannelData> channels;
+    double internalClockSeconds = 0.0;
+    static constexpr double channelStaleTimeoutSeconds = 3.0;
     mutable juce::SpinLock analysisDataLock;
+
+    static juce::Colour colorForChannelId (int channelId);
+    static juce::String defaultChannelNameForId (int channelId);
+    void pruneStaleChannels();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (THDAnalyzerPlugin)
 };
