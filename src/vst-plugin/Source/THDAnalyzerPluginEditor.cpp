@@ -1047,7 +1047,10 @@ void THDAnalyzerPluginEditor::timerCallback()
     if (smoothedHarmonics.size() != analysis.harmonics.size())
         smoothedHarmonics.assign (analysis.harmonics.size(), 0.0f);
 
-    std::vector<float> harmonicTargets = analysis.harmonics;
+    std::vector<float> harmonicTargets (smoothedHarmonics.size(), 0.0f);
+    std::copy (analysis.harmonics.begin(),
+               analysis.harmonics.begin() + static_cast<std::ptrdiff_t> (juce::jmin (analysis.harmonics.size(), harmonicTargets.size())),
+               harmonicTargets.begin());
     if (isMasterMode)
     {
         std::fill (harmonicTargets.begin(), harmonicTargets.end(), 0.0f);
