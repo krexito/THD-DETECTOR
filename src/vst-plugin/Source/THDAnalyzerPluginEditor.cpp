@@ -182,10 +182,19 @@ class THDAnalyzerPluginEditor::HarmonicSpectrumDisplay final : public juce::Comp
                                                                 public juce::SettableTooltipClient
 {
 public:
-    void setData (const std::vector<float>& harmonicsToUse, float fundamentalFrequencyToUse)
+    void setData (const std::vector<float>& harmonicsToUse,
+                  const std::vector<juce::Colour>& harmonicColoursToUse,
+                  float fundamentalFrequencyToUse,
+                  bool masterHotspotModeToUse)
     {
         harmonics = harmonicsToUse;
+        harmonicColours = harmonicColoursToUse;
         fundamentalFrequency = juce::jmax (0.0f, fundamentalFrequencyToUse);
+        masterHotspotMode = masterHotspotModeToUse;
+
+        if (harmonicColours.size() < harmonics.size())
+            harmonicColours.resize (harmonics.size(), ColorPalette::accentBlue);
+
         repaint();
     }
 
@@ -203,8 +212,15 @@ public:
             return;
 
         float peak = 0.0001f;
+        int hotspotIndex = 0;
         for (int i = 0; i < bins; ++i)
-            peak = juce::jmax (peak, harmonics[static_cast<size_t> (i)]);
+        {
+            if (harmonics[static_cast<size_t> (i)] > peak)
+            {
+                peak = harmonics[static_cast<size_t> (i)];
+                hotspotIndex = i;
+            }
+        }
 
         const auto barWidth = (plotArea.getWidth() - (static_cast<float> (bins - 1) * 6.0f)) / static_cast<float> (bins);
         for (int i = 0; i < bins; ++i)
@@ -214,11 +230,17 @@ public:
                                                plotArea.getBottom() - plotArea.getHeight() * value,
                                                barWidth,
                                                plotArea.getHeight() * value);
-            const auto harmonicNumber = i + 2;
-            const auto isEvenHarmonic = (harmonicNumber % 2) == 0;
-            const auto colour = isEvenHarmonic ? ColorPalette::accentBlue : ColorPalette::mediumHigh;
-            g.setColour (colour.withAlpha (0.85f));
+
+            const auto baseColour = harmonicColours[static_cast<size_t> (i)];
+            const auto fillColour = baseColour.withMultipliedBrightness (0.75f + (0.5f * value));
+            g.setColour (fillColour.withAlpha (0.90f));
             g.fillRoundedRectangle (bar, 2.5f);
+
+            if (value > 0.01f)
+            {
+                g.setColour (fillColour.withAlpha (0.48f));
+                g.drawRoundedRectangle (bar.expanded (1.2f), 3.0f, 1.0f);
+            }
 
             g.setColour (juce::Colours::white.withAlpha (0.65f));
             g.setFont (makeMonoFont (8.0f));
@@ -230,12 +252,17 @@ public:
 
         g.setColour (juce::Colours::white.withAlpha (0.45f));
         g.setFont (makeMonoFont (8.0f));
-        g.drawText ("F0 " + juce::String (fundamentalFrequency, 1) + " Hz", getLocalBounds().removeFromTop (18).reduced (8, 0), juce::Justification::centredRight);
+        const auto title = masterHotspotMode
+            ? ("HOTSPOT H" + juce::String (hotspotIndex + 2))
+            : ("F0 " + juce::String (fundamentalFrequency, 1) + " Hz");
+        g.drawText (title, getLocalBounds().removeFromTop (18).reduced (8, 0), juce::Justification::centredRight);
     }
 
 private:
     std::vector<float> harmonics = std::vector<float> (7, 0.0f);
+    std::vector<juce::Colour> harmonicColours = std::vector<juce::Colour> (7, ColorPalette::accentBlue);
     float fundamentalFrequency = 0.0f;
+    bool masterHotspotMode = false;
 };
 
 class THDAnalyzerPluginEditor::HistoryTimelineDisplay final : public juce::Component,
@@ -829,7 +856,7 @@ void THDAnalyzerPluginEditor::paint (juce::Graphics& g)
     g.setFont (makeMonoFont (8.0f, true));
     g.drawText ("MASTER THD", 36, sectionLabelsY, 180, 14, juce::Justification::centredLeft);
     g.drawText (isMasterMode ? "CHANNEL MEASUREMENTS" : "LOCAL CHANNEL METRICS", 400, sectionLabelsY, 220, 14, juce::Justification::centredLeft);
-    g.drawText ("HARMONIC SPECTRUM", 764, sectionLabelsY, 220, 14, juce::Justification::centredLeft);
+    g.drawText (isMasterMode ? "THD HOTSPOT SPECTRUM" : "HARMONIC SPECTRUM", 764, sectionLabelsY, 220, 14, juce::Justification::centredLeft);
 
     const auto masterThdText = hasSeenValidAnalysis ? ("MASTER " + juce::String (smoothedMasterThd, 2) + "%") : juce::String ("MASTER --");
     const auto masterThdNText = hasSeenValidAnalysis ? ("THD+N " + juce::String (smoothedMasterThdN, 2) + "%") : juce::String ("THD+N --");
@@ -944,18 +971,51 @@ void THDAnalyzerPluginEditor::timerCallback()
     if (processor.popLatestAnalysisResultForEditor (queuedAnalysis))
         analysis = queuedAnalysis;
 
-    double thdSum = 0.0;
-    float maxPeak = 0.0f;
-    for (const auto& channel : snapshotChannels)
-    {
-        thdSum += channel.thd;
-        maxPeak = juce::jmax (maxPeak, static_cast<float> (channel.peakLevel));
-    }
-
-    const auto averageThd = snapshotChannels.empty() ? 0.0f : static_cast<float> (thdSum / static_cast<double> (snapshotChannels.size()));
     const auto measuredThd = juce::jlimit (0.0f, 100.0f, analysis.thd);
     const auto measuredThdN = juce::jlimit (0.0f, 100.0f, analysis.thdN);
     const auto measuredFloor = juce::jlimit (0.0f, 1.0f, analysis.noiseFloor);
+
+    float aggregateMasterThd = measuredThd;
+    float aggregateMasterThdN = measuredThdN;
+    float averageThd = measuredThd;
+    float maxPeak = measuredThd;
+
+    if (isMasterMode)
+    {
+        double sumThd = 0.0;
+        double sumThdSquared = 0.0;
+        double sumThdNSquared = 0.0;
+        float maxChannelThd = 0.0f;
+        int countedChannels = 0;
+
+        for (const auto& channel : snapshotChannels)
+        {
+            const auto chThd = juce::jlimit (0.0f, 100.0f, static_cast<float> (channel.thd));
+            const auto chThdN = juce::jlimit (0.0f, 100.0f, static_cast<float> (channel.thdN));
+
+            sumThd += chThd;
+            sumThdSquared += static_cast<double> (chThd) * chThd;
+            sumThdNSquared += static_cast<double> (chThdN) * chThdN;
+            maxChannelThd = juce::jmax (maxChannelThd, chThd);
+            ++countedChannels;
+        }
+
+        if (countedChannels > 0)
+        {
+            const auto invCount = 1.0 / static_cast<double> (countedChannels);
+            averageThd = static_cast<float> (sumThd * invCount);
+            aggregateMasterThd = static_cast<float> (std::sqrt (sumThdSquared * invCount));
+            aggregateMasterThdN = static_cast<float> (std::sqrt (sumThdNSquared * invCount));
+            maxPeak = maxChannelThd;
+        }
+        else
+        {
+            aggregateMasterThd = 0.0f;
+            aggregateMasterThdN = 0.0f;
+            averageThd = 0.0f;
+            maxPeak = 0.0f;
+        }
+    }
 
     const auto nowMs = juce::Time::getMillisecondCounterHiRes();
     double dtSeconds = 1.0 / 20.0;
@@ -964,11 +1024,11 @@ void THDAnalyzerPluginEditor::timerCallback()
     lastTimerCallbackMs = nowMs;
 
     latestAnalysisConfidence = juce::jlimit (0.0f, 1.0f, analysis.analysisConfidence);
-    const bool analysisValid = analysis.fundamentalValid;
+    const bool analysisValid = isMasterMode ? (! snapshotChannels.empty()) : analysis.fundamentalValid;
     if (analysisValid)
     {
-        lastValidMasterThd = measuredThd;
-        lastValidMasterThdN = measuredThdN;
+        lastValidMasterThd = aggregateMasterThd;
+        lastValidMasterThdN = aggregateMasterThdN;
         hasSeenValidAnalysis = true;
     }
 
@@ -987,9 +1047,28 @@ void THDAnalyzerPluginEditor::timerCallback()
     if (smoothedHarmonics.size() != analysis.harmonics.size())
         smoothedHarmonics.assign (analysis.harmonics.size(), 0.0f);
 
+    std::vector<float> harmonicTargets = analysis.harmonics;
+    if (isMasterMode)
+    {
+        std::fill (harmonicTargets.begin(), harmonicTargets.end(), 0.0f);
+
+        if (! snapshotChannels.empty())
+        {
+            for (const auto& channel : snapshotChannels)
+            {
+                for (size_t i = 0; i < harmonicTargets.size() && i < channel.harmonics.size(); ++i)
+                    harmonicTargets[i] += juce::jlimit (0.0f, 1.0f, static_cast<float> (channel.harmonics[i]));
+            }
+
+            const auto invCount = 1.0f / static_cast<float> (snapshotChannels.size());
+            for (auto& value : harmonicTargets)
+                value *= invCount;
+        }
+    }
+
     for (size_t i = 0; i < smoothedHarmonics.size(); ++i)
     {
-        const auto target = analysisValid ? juce::jlimit (0.0f, 1.0f, analysis.harmonics[i]) : smoothedHarmonics[i];
+        const auto target = analysisValid ? juce::jlimit (0.0f, 1.0f, harmonicTargets[i]) : smoothedHarmonics[i];
         smoothedHarmonics[i] = applyBallistics (target, smoothedHarmonics[i], dtSeconds, attackTauSeconds, releaseTauSeconds);
     }
 
@@ -998,8 +1077,42 @@ void THDAnalyzerPluginEditor::timerCallback()
     masterGaugeDisplay->setValue (smoothedMasterThdN);
     masterGaugeDisplay->setTooltip ("THD+N " + juce::String (smoothedMasterThdN, 2) + "% (smoothed)");
 
-    harmonicSpectrumDisplay->setData (smoothedHarmonics, analysis.fundamentalFrequency);
-    harmonicSpectrumDisplay->setTooltip ("Fundamental " + juce::String (analysis.fundamentalFrequency, 1) + " Hz | Confidence " + juce::String (latestAnalysisConfidence, 2));
+    std::vector<juce::Colour> harmonicColours (smoothedHarmonics.size(), ColorPalette::accentBlue);
+    if (isMasterMode)
+    {
+        for (size_t i = 0; i < harmonicColours.size(); ++i)
+        {
+            float bestContribution = 0.0f;
+            juce::Colour bestColour = ColorPalette::critical;
+
+            for (const auto& channel : snapshotChannels)
+            {
+                if (i >= channel.harmonics.size())
+                    continue;
+
+                const auto contribution = juce::jlimit (0.0f, 1.0f,
+                    static_cast<float> (channel.harmonics[i]) * juce::jlimit (0.0f, 1.0f, static_cast<float> (channel.thdN) / 5.0f));
+
+                if (contribution >= bestContribution)
+                {
+                    bestContribution = contribution;
+                    bestColour = channel.channelColor;
+                }
+            }
+
+            harmonicColours[i] = bestColour;
+        }
+    }
+    else
+    {
+        for (size_t i = 0; i < harmonicColours.size(); ++i)
+            harmonicColours[i] = ((i % 2) == 0) ? ColorPalette::accentBlue : ColorPalette::mediumHigh;
+    }
+
+    harmonicSpectrumDisplay->setData (smoothedHarmonics, harmonicColours, analysis.fundamentalFrequency, isMasterMode);
+    harmonicSpectrumDisplay->setTooltip (isMasterMode
+        ? "THD hotspot map by harmonic; bar colour follows dominant channel colour"
+        : ("Fundamental " + juce::String (analysis.fundamentalFrequency, 1) + " Hz | Confidence " + juce::String (latestAnalysisConfidence, 2)));
 
     historyTimelineDisplay->pushValue (smoothedMasterThdN);
     historyTimelineDisplay->setTooltip ("Noise floor " + juce::String (smoothedNoiseFloor, 5));
