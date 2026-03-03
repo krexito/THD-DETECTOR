@@ -389,8 +389,8 @@ private:
 class THDAnalyzerPluginEditor::ChannelCard final : public juce::Component
 {
 public:
-    ChannelCard (THDAnalyzerPlugin& processorToUse, UIChannelModel channel, std::function<void(int)> onRemoveToUse)
-        : processor (processorToUse), model (std::move (channel)), onRemove (std::move (onRemoveToUse)), removeButton ("x")
+    ChannelCard (THDAnalyzerPlugin& processorToUse, UIChannelModel channel)
+        : processor (processorToUse), model (std::move (channel))
     {
         addAndMakeVisible (waveform);
         addAndMakeVisible (badge);
@@ -402,16 +402,6 @@ public:
 
         configureButton (muteButton, "M");
         configureButton (soloButton, "S");
-
-        removeButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-        removeButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.45f));
-        removeButton.setTooltip ("Remove channel");
-        addAndMakeVisible (removeButton);
-        removeButton.onClick = [this]
-        {
-            if (onRemove != nullptr)
-                onRemove (model.channelId);
-        };
 
         if (juce::isPositiveAndBelow (model.channelId, 8))
         {
@@ -472,7 +462,6 @@ public:
         muteButton.setBounds (buttonRow.removeFromLeft (buttonRow.getWidth() / 2).reduced (1));
         soloButton.setBounds (buttonRow.reduced (1));
 
-        removeButton.setBounds (getWidth() - 16, 2, 14, 14);
     }
 
     void mouseEnter (const juce::MouseEvent&) override { hovered = true; }
@@ -501,7 +490,6 @@ public:
         waveform.setLevel (channelPeak + juce::jlimit (0.0f, 0.2f, static_cast<float> (channelData.level) * 0.15f));
 
         hoverMix = juce::jlimit (0.35f, 1.0f, hoverMix + (hovered ? 0.08f : -0.08f));
-        removeButton.setAlpha (hoverMix - 0.2f);
         repaint();
     }
     juce::Button& getMuteButton() noexcept { return muteButton; }
@@ -523,14 +511,12 @@ private:
 
     THDAnalyzerPlugin& processor;
     UIChannelModel model;
-    std::function<void(int)> onRemove;
     WaveformMiniDisplay waveform;
     Badge badge;
     VUMeter vuMeter;
     juce::Label thdLabel;
     juce::TextButton muteButton;
     juce::TextButton soloButton;
-    juce::TextButton removeButton;
     bool hovered = false;
     float hoverMix = 0.35f;
 
@@ -538,30 +524,12 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> soloAttachment;
 };
 
-class THDAnalyzerPluginEditor::HeaderBar final : public juce::Component,
-                                                  private juce::Timer
+class THDAnalyzerPluginEditor::HeaderBar final : public juce::Component
 {
 public:
-    explicit HeaderBar (std::function<void()> onAddChannelToUse)
-        : onAddChannel (std::move (onAddChannelToUse))
-    {
-        addButton.setButtonText ("+ ADD CHANNEL");
-        addButton.setColour (juce::TextButton::buttonColourId, ColorPalette::accentBlue.withAlpha (0.9f));
-        addButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
-        addButton.setTooltip ("Add channel analyzer ID");
-        addAndMakeVisible (addButton);
-        addButton.onClick = [this]
-        {
-            if (onAddChannel != nullptr)
-                onAddChannel();
-        };
-        startTimerHz (24);
-    }
+    HeaderBar() = default;
 
-    void resized() override
-    {
-        addButton.setBounds (getWidth() - 140, 12, 128, 24);
-    }
+    void resized() override {}
 
     void paint (juce::Graphics& g) override
     {
@@ -585,24 +553,20 @@ public:
         g.setFont (makeMonoFont (8.0f));
         g.drawText ("v2.0 -- MEASUREMENT EDITION", getLocalBounds().withTrimmedTop (18), juce::Justification::centredTop);
 
-        auto statusArea = getLocalBounds().removeFromRight (250).withTrimmedLeft (8).withTrimmedTop (13);
+        auto statusArea = juce::Rectangle<int> (getWidth() - 162, 13, 144, 24);
         g.setColour (juce::Colours::white.withAlpha (0.75f));
         g.setFont (makeMonoFont (8.0f, true));
-        g.drawText ("MEASURING", statusArea.removeFromLeft (74), juce::Justification::centredLeft);
+        g.drawText ("MEASURING", statusArea.withTrimmedLeft (18), juce::Justification::centredLeft);
 
-        const auto dotBounds = statusArea.removeFromLeft (14).reduced (4).toFloat();
-        g.setColour (ColorPalette::clean.withAlpha (pulse));
+        const auto dotBounds = juce::Rectangle<float> (static_cast<float> (statusArea.getX() + 3),
+                                                       static_cast<float> (statusArea.getY() + 8),
+                                                       8.0f,
+                                                       8.0f);
+        g.setColour (ColorPalette::clean.withAlpha (0.9f));
         g.fillEllipse (dotBounds);
     }
 
 private:
-    void timerCallback() override
-    {
-        phase += 0.15f;
-        pulse = juce::jlimit (0.0f, 1.0f, 0.45f + 0.55f * std::sin (phase));
-        repaint();
-    }
-
     void drawWindowDots (juce::Graphics& g)
     {
         const std::array<juce::Colour, 3> dots {
@@ -618,10 +582,6 @@ private:
         }
     }
 
-    juce::TextButton addButton;
-    std::function<void()> onAddChannel;
-    float phase = 0.0f;
-    float pulse = 1.0f;
 };
 
 void THDAnalyzerPluginEditor::configureModeControls()
@@ -668,12 +628,7 @@ void THDAnalyzerPluginEditor::rebuildChannelCards()
         uiModel.color = channel.channelColor;
         uiModel.thdN = static_cast<float> (channel.thdN);
 
-        auto card = std::make_unique<ChannelCard> (processor, uiModel, [this] (int id)
-        {
-            processor.removeChannel (id);
-            rebuildChannelCards();
-            resized();
-        });
+        auto card = std::make_unique<ChannelCard> (processor, uiModel);
 
         channelViewportContent.addAndMakeVisible (*card);
         channelCards.push_back (std::move (card));
@@ -689,11 +644,7 @@ void THDAnalyzerPluginEditor::rebuildChannelCards()
 THDAnalyzerPluginEditor::THDAnalyzerPluginEditor (THDAnalyzerPlugin& p)
     : AudioProcessorEditor (&p), processor (p)
 {
-    headerBar = std::make_unique<HeaderBar> ([this]
-    {
-        processor.ensureChannelExists (processor.getChannelId());
-        rebuildChannelCards();
-    });
+    headerBar = std::make_unique<HeaderBar>();
     addAndMakeVisible (*headerBar);
     configureModeControls();
 
@@ -736,7 +687,7 @@ void THDAnalyzerPluginEditor::paint (juce::Graphics& g)
 
     g.setColour (juce::Colours::white.withAlpha (0.75f));
     g.setFont (makeMonoFont (9.0f, true));
-    g.drawText ("CHANNEL ANALYZER", channelSection.removeFromTop (24).reduced (12, 0), juce::Justification::centredLeft);
+    g.drawText ("AUTO-DETECTED CHANNEL ANALYZERS", channelSection.removeFromTop (24).reduced (12, 0), juce::Justification::centredLeft);
 
     auto masterArea = juce::Rectangle<int> (16, 294, getWidth() - 32, getHeight() - 310);
     g.setColour (ColorPalette::surfaceA.withAlpha (0.9f));
@@ -834,13 +785,21 @@ void THDAnalyzerPluginEditor::timerCallback()
         card->refreshFromProcessor();
 
     const auto analysis = processor.getLastAnalysisResult();
-    masterGaugeDisplay->setValue (analysis.thdN);
-    masterGaugeDisplay->setTooltip ("THD+N " + juce::String (analysis.thdN, 2) + "%");
+    const auto measuredThdN = juce::jlimit (0.0f, 100.0f, analysis.thdN);
+    const auto gatedTargetThdN = analysis.level < 0.001f ? 0.0f : measuredThdN;
+
+    constexpr float attack = 0.20f;
+    constexpr float release = 0.08f;
+    const auto smoothing = gatedTargetThdN > smoothedMasterThdN ? attack : release;
+    smoothedMasterThdN += (gatedTargetThdN - smoothedMasterThdN) * smoothing;
+
+    masterGaugeDisplay->setValue (smoothedMasterThdN);
+    masterGaugeDisplay->setTooltip ("THD+N " + juce::String (smoothedMasterThdN, 2) + "% (smoothed)");
 
     harmonicSpectrumDisplay->setData (analysis.harmonics);
     harmonicSpectrumDisplay->setTooltip ("Fundamental " + juce::String (analysis.fundamentalFrequency, 1) + " Hz");
 
-    historyTimelineDisplay->pushValue (analysis.thdN);
+    historyTimelineDisplay->pushValue (smoothedMasterThdN);
     historyTimelineDisplay->setTooltip ("Noise floor " + juce::String (analysis.noiseFloor, 5));
 
     repaint();

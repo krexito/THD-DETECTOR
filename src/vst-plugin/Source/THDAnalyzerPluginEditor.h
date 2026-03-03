@@ -50,5 +50,7 @@ private:
     std::unique_ptr<HistoryTimelineDisplay> historyTimelineDisplay;
     std::vector<std::unique_ptr<ProgressBarRow>> progressRows;
 
+    float smoothedMasterThdN = 0.0f;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (THDAnalyzerPluginEditor)
 };
