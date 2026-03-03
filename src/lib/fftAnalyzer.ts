@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import {
+  calculateCompensatedWindowedRms,
+  computeThdFromLinearAmplitudes,
+  estimateToneRmsAtFrequency,
+  getHarmonicBins,
+} from "./thdMath";
 
 // FFT Analyzer using Web Audio API AnalyserNode
 export class FFTAnalyzer {
@@ -106,62 +112,48 @@ export class FFTAnalyzer {
       return this.getDefaultAnalysis();
     }
 
-    // Calculate harmonic bins
-    const harmonicBins = [2, 3, 4, 5, 6, 7, 8].map(h => 
-      Math.round((fundamentalFreq * h) / binWidth)
+    const timeDomainData = new Float32Array(this.analyserNode.fftSize);
+    this.analyserNode.getFloatTimeDomainData(timeDomainData);
+
+    const fundamentalRms = estimateToneRmsAtFrequency(
+      timeDomainData,
+      sampleRate,
+      fundamentalFreq,
+      "hann",
     );
 
-    // Extract harmonic magnitudes
-    const harmonics: number[] = harmonicBins.map((bin, i) => {
-      if (bin >= bufferLength) return -120;
-      
-      // Interpolate between bins for better precision
-      const magnitude = bin > 0 && bin < bufferLength - 1
-        ? this.interpolatePeak(frequencyData, bin)
-        : frequencyData[bin];
-      
-      return magnitude - fundamentalMagnitude; // Relative to fundamental
+    // Calculate harmonic bins (H2-H8), skipping harmonics above Nyquist
+    const harmonicBins = getHarmonicBins({
+      fundamentalFrequency: fundamentalFreq,
+      sampleRate,
+      fftSize: bufferLength * 2,
+      maxHarmonic: 8,
+      aliasMode: "ignore",
     });
 
-    // Calculate THD (Total Harmonic Distortion)
-    let harmonicPower = 0;
-    harmonics.forEach(h => {
-      if (h > -120) {
-        harmonicPower += Math.pow(10, h / 10);
-      }
+    const harmonicRms = harmonicBins.map(({ aliasedFrequency }) =>
+      estimateToneRmsAtFrequency(timeDomainData, sampleRate, aliasedFrequency, "hann"),
+    );
+
+    const thdResult = computeThdFromLinearAmplitudes(fundamentalRms, harmonicRms);
+
+    const harmonicsDb = harmonicRms.map((rms) => {
+      if (rms <= 0 || fundamentalRms <= 0) return -120;
+      return 20 * Math.log10(rms / fundamentalRms);
     });
-    
-    const thd = harmonicPower > 0 
-      ? Math.sqrt(harmonicPower) * 100 
-      : 0;
 
-    // Estimate noise floor (average of high frequency bins)
-    const noiseStartBin = Math.round(8000 / binWidth);
-    const noiseEndBin = Math.round(20000 / binWidth);
-    let noiseFloor = -120;
-    if (noiseStartBin < noiseEndBin && noiseEndBin < bufferLength) {
-      let noiseSum = 0;
-      let noiseCount = 0;
-      for (let i = noiseStartBin; i < noiseEndBin; i++) {
-        if (frequencyData[i] > -120) {
-          noiseSum += frequencyData[i];
-          noiseCount++;
-        }
-      }
-      if (noiseCount > 0) {
-        noiseFloor = noiseSum / noiseCount;
-      }
-    }
-
-    const noiseRelative = noiseFloor - fundamentalMagnitude;
-    const thdN = Math.sqrt(
-      harmonicPower + Math.pow(10, noiseRelative / 10)
-    ) * 100;
+    // THD+N from residual RMS: remove fundamental, keep harmonics + broadband noise.
+    const totalRms = calculateCompensatedWindowedRms(timeDomainData, "hann");
+    const residualRms = Math.sqrt(
+      Math.max(0, totalRms * totalRms - fundamentalRms * fundamentalRms),
+    );
+    const thdN =
+      fundamentalRms > 0 ? (residualRms / fundamentalRms) * 100 : 0;
 
     return {
-      thd: Math.min(thd, 100),
+      thd: Math.min(thdResult.thdPercent, 100),
       thdN: Math.min(thdN, 100),
-      harmonics: harmonics.map(h => Math.max(0, Math.min(1, (h + 60) / 60))),
+      harmonics: harmonicsDb.map(h => Math.max(0, Math.min(1, (h + 60) / 60))),
       spectrum: frequencyData
     };
   }
@@ -184,28 +176,23 @@ export class FFTAnalyzer {
     // Refine by checking neighbors
     if (maxBinIndex > 0 && maxBinIndex < data.length - 1) {
       if (data[maxBinIndex - 1] > data[maxBinIndex] && data[maxBinIndex - 1] > data[maxBinIndex + 1]) {
-        return maxBinIndex - 1;
+        maxBinIndex -= 1;
       } else if (data[maxBinIndex + 1] > data[maxBinIndex] && data[maxBinIndex + 1] > data[maxBinIndex - 1]) {
-        return maxBinIndex + 1;
+        maxBinIndex += 1;
+      }
+    }
+
+    // Subharmonic guard: if the half-frequency bin is close in level,
+    // prefer it to reduce octave-doubling fundamental detection errors.
+    const halfBin = Math.round(maxBinIndex / 2);
+    if (halfBin >= minBin && halfBin < data.length) {
+      const harmonicDominanceDb = data[maxBinIndex] - data[halfBin];
+      if (harmonicDominanceDb < 6) {
+        return halfBin;
       }
     }
 
     return maxBinIndex;
-  }
-
-  private interpolatePeak(data: Float32Array, bin: number): number {
-    if (bin <= 0 || bin >= data.length - 1) return data[bin];
-    
-    const alpha = data[bin - 1];
-    const beta = data[bin];
-    const gamma = data[bin + 1];
-    
-    const denominator = alpha - 2 * beta + gamma;
-    if (Math.abs(denominator) < 0.0001) return beta;
-    
-    const p = 0.5 * (alpha - gamma) / denominator;
-    
-    return beta - (1/4) * (alpha - gamma) * p;
   }
 
   private getDefaultAnalysis() {
