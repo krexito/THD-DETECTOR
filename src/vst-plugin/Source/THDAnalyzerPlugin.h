@@ -30,13 +30,10 @@ public:
 
     FFTAnalyzer()
         : fft (fftOrder)
+        , window (fftSize, juce::dsp::WindowingFunction<float>::hann)
     {
-        windowBuffer.resize (fftSize, 0.0f);
         fftData.resize (fftSize * 2, 0.0f);
         magnitudeSquaredBuffer.resize (fftSize / 2, 0.0f);
-
-        for (int i = 0; i < fftSize; ++i)
-            windowBuffer[i] = 0.5f * (1.0f - std::cos (2.0f * juce::MathConstants<float>::pi * static_cast<float> (i) / static_cast<float> (fftSize - 1)));
     }
 
     struct AnalysisResult
@@ -61,7 +58,9 @@ public:
         std::fill (fftData.begin(), fftData.end(), 0.0f);
 
         for (int i = 0; i < fftSize; ++i)
-            fftData[i] = input[i] * windowBuffer[i];
+            fftData[i] = input[i];
+
+        window.multiplyWithWindowingTable (fftData.data(), fftSize);
 
         fft.performRealOnlyForwardTransform (fftData.data());
 
@@ -173,7 +172,7 @@ public:
 
 private:
     juce::dsp::FFT fft;
-    std::vector<float> windowBuffer;
+    juce::dsp::WindowingFunction<float> window;
     std::vector<float> fftData;
     std::vector<float> magnitudeSquaredBuffer;
 };
@@ -277,6 +276,7 @@ private:
     FFTAnalyzer fftAnalyzer;
     FFTAnalyzer::AnalysisResult lastAnalysis;
     FFTAnalyzer::AnalysisResult realtimeAnalysisCache;
+    FFTAnalyzer::AnalysisResult smoothedAnalysisCache;
 
     juce::AudioProcessorValueTreeState state;
     std::atomic<float>* pluginModeParamValue = nullptr;
@@ -296,6 +296,7 @@ private:
     int snapshotIntervalSamples = 1;
     static constexpr int analysisHopSize = FFTAnalyzer::fftSize / 4;
     static constexpr float targetSnapshotRateHz = 25.0f;
+    static constexpr float analysisSmoothingCoeff = 0.15f;
 
     std::vector<ChannelData> channels;
     double internalClockSeconds = 0.0;
