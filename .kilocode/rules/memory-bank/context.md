@@ -202,4 +202,3 @@ export async function GET() {
 
 | Session 46 | Web telemetry readability pass — slowed channel readout motion by adding frame-rate-independent exponential smoothing and 10 Hz publish throttling in `useAudioEngine`, reducing rapid number jumps in THD/THD+N/level displays while keeping live updates responsive. |
 
-| Session 47 | Web telemetry speed follow-up — increased UI publish throttle from 100 ms to 800 ms in `useAudioEngine` per user feedback, making THD/THD+N/level number updates significantly slower and easier to read. |
