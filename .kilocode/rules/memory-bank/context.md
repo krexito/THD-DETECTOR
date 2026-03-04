@@ -199,3 +199,7 @@ export async function GET() {
 | Session 43 | IPC simplification + THD harmonic robustness — removed legacy MIDI SysEx channel/master telemetry path in favor of existing in-process shared channel state, set plugin MIDI input/output requirements to false, and improved harmonic extraction by searching ±2 FFT bins around each harmonic target to reduce bin-misalignment under real-world detuning. |
 | Session 44 | Web Master Brain UI enhancement — added a bottom THD Frequency Intensity Map panel that renders a color-coded frequency spectrum (20 Hz–20 kHz) where warmer colors and taller bars indicate stronger distortion energy aggregated from channel harmonics. |
 | Session 45 | Master Brain visual redesign pass — restyled the web Master Brain to better match the requested hardware-style preview with metallic header, large central THD spectrum, bottom control/knob strip, and compact stat readouts while preserving live analyzer telemetry. |
+
+| Session 46 | Web telemetry readability pass — slowed channel readout motion by adding frame-rate-independent exponential smoothing and 10 Hz publish throttling in `useAudioEngine`, reducing rapid number jumps in THD/THD+N/level displays while keeping live updates responsive. |
+
+| Session 47 | Web telemetry speed follow-up — increased UI publish throttle from 100 ms to 800 ms in `useAudioEngine` per user feedback, making THD/THD+N/level number updates significantly slower and easier to read. |

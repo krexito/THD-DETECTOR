@@ -143,6 +143,14 @@ export function useAudioEngine(
   const channelsRef = useRef(channels);
   const onUpdateRef = useRef(onUpdate);
   const fftAnalyzerRef = useRef<FFTAnalyzer | null>(null);
+  const smoothedRef = useRef<Map<string, {
+    level: number;
+    peakLevel: number;
+    thd: number;
+    thdN: number;
+    harmonics: number[];
+  }>>(new Map());
+  const lastPublishRef = useRef(0);
 
   useEffect(() => {
     channelsRef.current = channels;
@@ -186,9 +194,24 @@ export function useAudioEngine(
 
   useEffect(() => {
     let running = true;
+    let lastFrameTime = performance.now();
+
+    const publishEveryMs = 800; // much slower readout updates for better readability
+    const smoothingPer60fpsFrame = 0.12;
+
+    const lerp = (from: number, to: number, alpha: number) =>
+      from + (to - from) * alpha;
 
     function tick() {
       if (!running) return;
+      const now = performance.now();
+      const dt = Math.min(100, now - lastFrameTime);
+      lastFrameTime = now;
+
+      // Keep smoothing stable even if frame rate changes.
+      const frameScale = dt / 16.67;
+      const alpha = 1 - Math.pow(1 - smoothingPer60fpsFrame, frameScale);
+
       timeRef.current += 0.016;
       const t = timeRef.current;
 
@@ -204,24 +227,56 @@ export function useAudioEngine(
         
         if (analysis) {
           // Simulate peak with some variation
-          const peak = Math.min(100, ch.level + Math.random() * 4);
-          
-          updates.set(ch.id, { 
-            level: ch.level, 
-            peakLevel: peak, 
-            thd: analysis.thd, 
-            thdN: analysis.thdN, 
-            harmonics: analysis.harmonics 
-          });
+          const targetPeak = Math.min(100, ch.level + Math.random() * 4);
+          const prev = smoothedRef.current.get(ch.id) ?? {
+            level: ch.level,
+            peakLevel: targetPeak,
+            thd: analysis.thd,
+            thdN: analysis.thdN,
+            harmonics: analysis.harmonics,
+          };
+
+          const smoothed = {
+            level: lerp(prev.level, ch.level, alpha),
+            peakLevel: lerp(prev.peakLevel, targetPeak, alpha * 0.8),
+            thd: lerp(prev.thd, analysis.thd, alpha),
+            thdN: lerp(prev.thdN, analysis.thdN, alpha),
+            harmonics: analysis.harmonics.map((h, i) =>
+              lerp(prev.harmonics[i] ?? h, h, alpha)
+            ),
+          };
+
+          smoothedRef.current.set(ch.id, smoothed);
+          updates.set(ch.id, smoothed);
         } else {
           // Fallback to simulation if FFT fails
           const { level, peak } = simulateLevel(ch.level, t, ch.id);
           const { thd, thdN, harmonics } = measureTHD(level, ch.id, t);
-          updates.set(ch.id, { level, peakLevel: peak, thd, thdN, harmonics });
+          const prev = smoothedRef.current.get(ch.id) ?? {
+            level,
+            peakLevel: peak,
+            thd,
+            thdN,
+            harmonics,
+          };
+
+          const smoothed = {
+            level: lerp(prev.level, level, alpha),
+            peakLevel: lerp(prev.peakLevel, peak, alpha * 0.8),
+            thd: lerp(prev.thd, thd, alpha),
+            thdN: lerp(prev.thdN, thdN, alpha),
+            harmonics: harmonics.map((h, i) => lerp(prev.harmonics[i] ?? h, h, alpha)),
+          };
+
+          smoothedRef.current.set(ch.id, smoothed);
+          updates.set(ch.id, smoothed);
         }
       });
 
-      onUpdateRef.current(updates);
+      if (now - lastPublishRef.current >= publishEveryMs) {
+        onUpdateRef.current(updates);
+        lastPublishRef.current = now;
+      }
       rafRef.current = requestAnimationFrame(tick);
     }
 
