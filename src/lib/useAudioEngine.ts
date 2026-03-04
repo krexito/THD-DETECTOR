@@ -196,7 +196,7 @@ export function useAudioEngine(
     let running = true;
     let lastFrameTime = performance.now();
 
-    const publishEveryMs = 100; // slower readout updates so numbers don't jump too fast
+    const publishEveryMs = 800; // much slower readout updates for better readability
     const smoothingPer60fpsFrame = 0.12;
 
     const lerp = (from: number, to: number, alpha: number) =>
