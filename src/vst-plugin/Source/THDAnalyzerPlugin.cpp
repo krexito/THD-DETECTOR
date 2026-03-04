@@ -371,6 +371,7 @@ void THDAnalyzerPlugin::reset()
         const juce::SpinLock::ScopedLockType lock (analysisDataLock);
         lastAnalysis = FFTAnalyzer::AnalysisResult {};
         realtimeAnalysisCache = FFTAnalyzer::AnalysisResult {};
+        smoothedAnalysisCache = FFTAnalyzer::AnalysisResult {};
     }
     fifoWritePosition = 0;
     fifoFilled = false;
@@ -531,19 +532,38 @@ void THDAnalyzerPlugin::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         displayAnalysis.analysisConfidence = analysis.analysisConfidence;
         displayAnalysis.fundamentalValid = analysis.fundamentalValid;
 
-        realtimeAnalysisCache = displayAnalysis;
+        if (! smoothedAnalysisCache.fundamentalValid)
+        {
+            smoothedAnalysisCache = displayAnalysis;
+        }
+        else
+        {
+            const auto alpha = analysisSmoothingCoeff;
+            smoothedAnalysisCache.thd += alpha * (displayAnalysis.thd - smoothedAnalysisCache.thd);
+            smoothedAnalysisCache.thdN += alpha * (displayAnalysis.thdN - smoothedAnalysisCache.thdN);
+            smoothedAnalysisCache.level += alpha * (displayAnalysis.level - smoothedAnalysisCache.level);
+            smoothedAnalysisCache.noiseFloor += alpha * (displayAnalysis.noiseFloor - smoothedAnalysisCache.noiseFloor);
+            smoothedAnalysisCache.analysisConfidence += alpha * (displayAnalysis.analysisConfidence - smoothedAnalysisCache.analysisConfidence);
+            smoothedAnalysisCache.fundamentalFrequency += alpha * (displayAnalysis.fundamentalFrequency - smoothedAnalysisCache.fundamentalFrequency);
+            for (size_t i = 0; i < smoothedAnalysisCache.harmonics.size(); ++i)
+                smoothedAnalysisCache.harmonics[i] += alpha * (displayAnalysis.harmonics[i] - smoothedAnalysisCache.harmonics[i]);
+
+            smoothedAnalysisCache.fundamentalValid = displayAnalysis.fundamentalValid;
+        }
+
+        realtimeAnalysisCache = smoothedAnalysisCache;
         samplesSinceLastSnapshotPush += analysisHopSize;
 
         // Rate-limit audio->GUI snapshots to keep meter updates legible and reduce visual jitter.
         if (samplesSinceLastSnapshotPush >= snapshotIntervalSamples)
         {
-            pushAnalysisSnapshotForEditor (displayAnalysis);
+            pushAnalysisSnapshotForEditor (smoothedAnalysisCache);
             samplesSinceLastSnapshotPush = 0;
         }
 
         {
             const juce::SpinLock::ScopedLockType lock (analysisDataLock);
-            lastAnalysis = displayAnalysis;
+            lastAnalysis = smoothedAnalysisCache;
         }
     }
 
