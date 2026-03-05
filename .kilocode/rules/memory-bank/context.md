@@ -204,3 +204,4 @@ export async function GET() {
 | Session 46 | Web telemetry readability pass — slowed channel readout motion by adding frame-rate-independent exponential smoothing and 10 Hz publish throttling in `useAudioEngine`, reducing rapid number jumps in THD/THD+N/level displays while keeping live updates responsive. |
 | Session 47 | VST measurement-stability pass — migrated FFT pre-windowing to JUCE's dedicated Hann window table and added audio-thread exponential smoothing (`analysisSmoothingCoeff = 0.15`) for THD/THD+N, level, noise floor, frequency, and harmonics prior to snapshot publication, reducing rapid readout jitter while preserving FIFO-based 8192-sample analysis. |
 
+| Session 48 | Build pipeline hotfix — removed runtime Google Fonts fetching from Next.js root layout to avoid offline/CI build failures (`next/font` fetch to fonts.googleapis.com) and switched to local/system typography with `antialiased` body class only. |
