@@ -36,6 +36,24 @@ THDAnalyzerPlugin::THDAnalyzerPlugin()
     }
 
     syncCachedParametersFromState();
+
+    // Auto-assign a stable per-instance channel slot when hosts instantiate
+    // multiple Channel plugins with the default channelId (0).
+    // This prevents all strips from publishing into the same shared slot.
+    if (auto* channelParam = state.getParameter ("channelId"))
+    {
+        const auto hasDefaultChannelId = channelIdParamValue != nullptr
+            && static_cast<int> (channelIdParamValue->load()) == 0;
+
+        if (hasDefaultChannelId)
+        {
+            const auto autoChannelId = static_cast<int> ((instanceId - 1u) % static_cast<uint32_t> (maxDynamicChannels));
+            channelParam->setValueNotifyingHost (state.getParameterRange ("channelId").convertTo0to1 (static_cast<float> (autoChannelId)));
+            cachedChannelId.store (autoChannelId, std::memory_order_release);
+        }
+    }
+
+    ensureChannelExists (getChannelId());
 }
 
 THDAnalyzerPlugin::~THDAnalyzerPlugin()
