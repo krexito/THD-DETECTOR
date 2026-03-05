@@ -111,7 +111,7 @@ export default function Home() {
               THD ANALYZER
             </span>
             <span className="text-[9px] text-neutral-600 tracking-wider">
-              v2.0 — MEASUREMENT EDITION
+              v2.0 - MEASUREMENT EDITION
             </span>
           </div>
         </div>
@@ -141,7 +141,7 @@ export default function Home() {
           <div className="text-[7px] text-neutral-700 mb-3 tracking-widest px-1 flex items-center gap-2">
             <span>CHANNEL ANALYZER PLUGINS</span>
             <div className="flex-1 h-px bg-neutral-900" />
-            <span className="text-neutral-800">INSERT ON EACH CHANNEL — MEASUREMENT ONLY</span>
+            <span className="text-neutral-800">INSERT ON EACH CHANNEL - MEASUREMENT ONLY</span>
           </div>
           <div className="flex gap-2.5 overflow-x-auto pb-2">
             {channels.map((ch) => (
@@ -170,7 +170,7 @@ export default function Home() {
           <div className="text-[7px] text-neutral-700 mb-3 tracking-widest px-1 flex items-center gap-2">
             <span>MASTER BRAIN PLUGIN</span>
             <div className="flex-1 h-px bg-neutral-900" />
-            <span className="text-neutral-800">INSERT ON MIXBUS — RECEIVES ALL CHANNEL DATA</span>
+            <span className="text-neutral-800">INSERT ON MIXBUS - RECEIVES ALL CHANNEL DATA</span>
           </div>
           <MasterBrain
             channels={channels}
@@ -182,9 +182,9 @@ export default function Home() {
 
         {/* Footer */}
         <div className="text-[7px] text-neutral-800 text-center tracking-widest pb-4">
-          THD ANALYZER v2.0 — CHANNEL PLUGINS MEASURE · MASTER BRAIN REPORTS
+          THD ANALYZER v2.0 - CHANNEL PLUGINS MEASURE | MASTER BRAIN REPORTS
           <br />
-          NO SIGNAL COLORING — PURE MEASUREMENT SYSTEM
+          NO SIGNAL COLORING - PURE MEASUREMENT SYSTEM
         </div>
       </div>
     </main>
