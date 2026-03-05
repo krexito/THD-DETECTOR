@@ -38,6 +38,8 @@ const juce::Colour ColorPalette::mediumHigh = juce::Colour::fromString ("fff9731
 const juce::Colour ColorPalette::critical = juce::Colour::fromString ("ffef4444");
 const juce::Colour ColorPalette::accentBlue = juce::Colour::fromString ("ff60a5fa");
 
+constexpr int latestMergedPullRequest = 43;
+
 struct UIChannelModel
 {
     int channelId = 0;
@@ -614,9 +616,19 @@ public:
         g.setColour (ColorPalette::mediumHigh.withAlpha (0.9f));
         g.drawText ("///", title.removeFromLeft (26), juce::Justification::centredLeft);
 
+        auto versionArea = title.removeFromLeft (170);
         g.setColour (juce::Colours::white.withAlpha (0.58f));
         g.setFont (makeMonoFont (8.0f));
-        g.drawText ("v2.0 -- MEASUREMENT EDITION", title, juce::Justification::centredLeft);
+        g.drawText ("v2.0 -- MEASUREMENT EDITION", versionArea, juce::Justification::centredLeft);
+
+        auto prBadge = juce::Rectangle<float> (static_cast<float> (versionArea.getRight() + 2), 13.0f, 58.0f, 16.0f);
+        g.setColour (ColorPalette::surfaceB.withAlpha (0.95f));
+        g.fillRoundedRectangle (prBadge, 4.0f);
+        g.setColour (ColorPalette::borderC.withAlpha (0.9f));
+        g.drawRoundedRectangle (prBadge.reduced (0.5f), 4.0f, 1.0f);
+        g.setColour (ColorPalette::accentBlue.withAlpha (0.95f));
+        g.setFont (makeMonoFont (7.5f, true));
+        g.drawText ("PR #" + juce::String (latestMergedPullRequest), prBadge.toNearestInt(), juce::Justification::centred);
 
         auto statusArea = juce::Rectangle<float> (static_cast<float> (getWidth() - 176), 10.0f, 158.0f, 28.0f);
         g.setColour (ColorPalette::surfaceB.withAlpha (0.95f));

@@ -16,6 +16,8 @@ const INITIAL_CHANNELS: ChannelData[] = [
   { id: "ch8", name: "FX BUS", thd: 0.03, thdN: 0.04, level: 45, peakLevel: 50, harmonics: [0.02, 0.01, 0.005, 0.002, 0.001, 0.0005, 0.0002], muted: false, soloed: false, color: "#94a3b8" },
 ];
 
+const LATEST_PR_VERSION = 43;
+
 export default function Home() {
   const [channels, setChannels] = useState<ChannelData[]>(INITIAL_CHANNELS);
   const [masterThd, setMasterThd] = useState(0.18);
@@ -112,6 +114,19 @@ export default function Home() {
             </span>
             <span className="text-[9px] text-neutral-600 tracking-wider">
               v2.0 — MEASUREMENT EDITION
+            </span>
+            <span
+              className="text-[9px] font-bold px-2 py-0.5 rounded"
+              style={{
+                color: "#93c5fd",
+                backgroundColor: "#0f1929",
+                border: "1px solid #1a3a5f",
+              }}
+            >
+              PR #{LATEST_PR_VERSION}
+            </span>
+            <span className="text-[8px] px-2 py-0.5 rounded border border-amber-900/70 text-amber-300/85 bg-amber-950/30 tracking-wide">
+              WEB PREVIEW (TARGET UI)
             </span>
           </div>
         </div>
