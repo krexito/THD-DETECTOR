@@ -187,7 +187,7 @@ export class FFTAnalyzer {
     const halfBin = Math.round(maxBinIndex / 2);
     if (halfBin >= minBin && halfBin < data.length) {
       const harmonicDominanceDb = data[maxBinIndex] - data[halfBin];
-      if (harmonicDominanceDb < 6) {
+      if (harmonicDominanceDb < 12) {
         return halfBin;
       }
     }
