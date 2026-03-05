@@ -163,8 +163,8 @@ public:
             }
         }
 
-        const float noiseLevel = noiseBins > 0 ? std::sqrt (noiseSum / static_cast<float> (noiseBins)) : 0.0f;
-        result.thdN = ((harmonicLevel + noiseLevel) / fundamentalLevel) * 100.0f;
+        const float noiseLevel = std::sqrt (noiseSum);
+        result.thdN = (std::sqrt (harmonicSumSquared + noiseSum) / fundamentalLevel) * 100.0f;
         result.noiseFloor = noiseLevel;
 
         return result;

@@ -205,3 +205,5 @@ export async function GET() {
 | Session 47 | VST measurement-stability pass — migrated FFT pre-windowing to JUCE's dedicated Hann window table and added audio-thread exponential smoothing (`analysisSmoothingCoeff = 0.15`) for THD/THD+N, level, noise floor, frequency, and harmonics prior to snapshot publication, reducing rapid readout jitter while preserving FIFO-based 8192-sample analysis. |
 
 | Session 48 | Build pipeline hotfix — removed runtime Google Fonts fetching from Next.js root layout to avoid offline/CI build failures (`next/font` fetch to fonts.googleapis.com) and switched to local/system typography with `antialiased` body class only. |
+
+| Session 49 | THD stability correctness pass — fixed C++ THD+N energy-domain math to combine harmonic and noise powers consistently (`sqrt(harmonicSumSquared + noiseSum)` over fundamental magnitude), increased web subharmonic guard threshold from 6 dB to 12 dB to reduce octave mis-lock jitter, and cached window coefficients in TS THD math to avoid recomputing Hann values on every harmonic projection pass. |

@@ -14,6 +14,22 @@ export interface HarmonicBin {
 
 export type WindowType = "rectangular" | "hann";
 
+const windowCache = new Map<string, Float32Array>();
+
+function getWindowCoefficients(size: number, windowType: WindowType): Float32Array {
+  const key = `${windowType}:${size}`;
+  const cached = windowCache.get(key);
+  if (cached) return cached;
+
+  const coeffs = new Float32Array(size);
+  for (let i = 0; i < size; i += 1) {
+    coeffs[i] = windowSample(i, size, windowType);
+  }
+
+  windowCache.set(key, coeffs);
+  return coeffs;
+}
+
 export function computeThdFromLinearAmplitudes(
   fundamentalAmplitude: number,
   harmonicAmplitudes: number[],
@@ -70,11 +86,12 @@ export function estimateToneRmsAtFrequency(
 
   const coherentGain = getCoherentGain(windowType, n);
 
+  const window = getWindowCoefficients(n, windowType);
+
   let real = 0;
   let imag = 0;
   for (let i = 0; i < n; i += 1) {
-    const w = windowSample(i, n, windowType);
-    const xw = samples[i] * w;
+    const xw = samples[i] * window[i];
     const angle = (-2 * Math.PI * frequency * i) / sampleRate;
     real += xw * Math.cos(angle);
     imag += xw * Math.sin(angle);
@@ -106,9 +123,11 @@ export function calculateCompensatedWindowedRms(
   const rmsGain = getWindowRmsGain(windowType, size);
   if (rmsGain <= 0) return 0;
 
+  const window = getWindowCoefficients(size, windowType);
+
   let sumSquares = 0;
   for (let i = 0; i < size; i += 1) {
-    const xw = samples[i] * windowSample(i, size, windowType);
+    const xw = samples[i] * window[i];
     sumSquares += xw * xw;
   }
 
