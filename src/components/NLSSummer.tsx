@@ -745,7 +745,7 @@ export default function MasterBrain({
       >
         <div className="text-3xl tracking-[0.2em] text-neutral-200 font-light">THD</div>
         <div className="text-[11px] tracking-wider text-neutral-300 font-mono">
-          {activeChannels.length}/{channels.length} ACTIVE · {statusText}
+          {activeChannels.length}/{channels.length} ACTIVE | {statusText}
         </div>
       </div>
 
@@ -817,7 +817,7 @@ export default function MasterBrain({
           <div className="text-[9px] text-neutral-500 mb-1.5 tracking-widest flex items-center gap-2">
             <span>CHANNEL MEASUREMENTS</span>
             <div className="flex-1 h-px bg-neutral-800" />
-            <span className="text-neutral-700">THD · THD+N · DOM.HARM · LEVEL</span>
+            <span className="text-neutral-700">THD | THD+N | DOM.HARM | LEVEL</span>
           </div>
           <ChannelTable channels={channels} />
         </div>

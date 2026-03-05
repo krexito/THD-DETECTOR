@@ -23,6 +23,7 @@ The THD Analyzer project has evolved from a web-based analyzer to include native
 - [x] VST Plugin Communication System — In-process shared-state Channel Strip ↔ Master Brain communication
 - [x] Plugin reset hardening — centralized startup state reset in `reset()` and invoked from `prepareToPlay` for cleaner audio initialization
 - [x] VST analysis stability pass — switched FFT windowing to `juce::dsp::WindowingFunction<float>` Hann table and added audio-thread EMA smoothing for THD/THD+N/harmonics before GUI snapshots
+- [x] GUI text encoding hardening pass — replaced Unicode separators (`·`, `—`) in key labels with ASCII (`|`, `-`) to avoid mojibake glyphs on hosts/fonts with limited Unicode support
 
 ## Current Structure
 
